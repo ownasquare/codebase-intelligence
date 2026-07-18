@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem in Codebase Intelligence
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the project. Remove credentials, private source, and provider payloads before submitting.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I can reproduce this on a supported version.
+          required: true
+        - label: This report contains no credentials or private source.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Run `codebase-intelligence --version` or copy the version shown in the app.
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Run mode
+      options:
+        - make demo
+        - Separate local services
+        - Docker Compose
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python version, and browser if the interface is involved.
+      placeholder: macOS 15, Python 3.12, Firefox
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a synthetic or public repository when possible.
+      placeholder: |
+        1. Start...
+        2. Add...
+        3. Ask...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include only the smallest sanitized error or screenshot needed.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Provider mode, repository source type, or other relevant non-secret details.

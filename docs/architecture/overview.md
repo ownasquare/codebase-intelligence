@@ -86,11 +86,14 @@ Redaction preserves newline count, so a citation's `start_line` and `end_line` c
 
 Provider factories are explicit dependencies rather than mutations of LlamaIndex globals:
 
-- Voyage AI `voyage-code-3` is the default code-focused embedding configuration.
-- OpenAI `text-embedding-3-small` is the alternative embedding configuration.
-- A deterministic lexical hash embedding exists only for tests and an explicitly labeled demo.
-- OpenAI `gpt-5-mini` can synthesize a cited explanation.
-- Extractive mode returns ranked cited locations without a chat-model credential.
+- A deterministic lexical hash embedding is the credential-free local default.
+- Extractive mode is the credential-free answer default and returns ranked cited locations.
+- Voyage AI `voyage-code-3` is the optional code-focused embedding configuration.
+- OpenAI `text-embedding-3-small` is an optional embedding configuration.
+- OpenAI `gpt-5-mini` can optionally synthesize a cited explanation.
+
+The built-in providers make the first run reproducible, but they are intentionally modest. Operators
+opt in to paid providers explicitly after choosing the data-sharing boundary that fits their source.
 
 Embedding provider/model/dimension, the Tree-sitter package contract, secret-redaction and
 hybrid-rerank contract versions, Qdrant collection prefix, and chunk configuration contribute to an
@@ -125,7 +128,12 @@ This design deliberately avoids a second SQLite source catalog. Atomic collectio
 
 ### Streamlit
 
-The UI is an API client organized as a repository workbench. It supports secondary GitHub and ZIP onboarding, request-scoped private tokens, job progress, repository selection, Investigate/Explore/Overview/Manage views, repository-scoped session history, citation-to-source navigation, Markdown export, reindex, and confirmed delete. It renders API problem details only after client-side sanitization. Runtime/provider diagnostics are disclosure content rather than the primary workflow, and ready workspaces do not poll the entire question surface.
+The UI is an API client organized around three visible spaces: Ask, Source, and Repository. It
+supports GitHub and ZIP onboarding, request-scoped private tokens, job progress, repository
+selection, repository-scoped session history, citation-to-source navigation, Markdown export,
+reindex, and confirmed delete. Maintenance controls stay collapsed inside Repository. The UI renders
+API problem details only after client-side sanitization, while runtime and provider diagnostics stay
+inside optional disclosure content.
 
 ## Lifecycle state
 
@@ -266,7 +274,7 @@ This is a secure local topology, not tenant isolation. A hosted deployment still
 - No repository code, hooks, dependencies, tests, or build steps are executed.
 - Only canonical GitHub repository URLs are acquired remotely.
 - No cross-repository or global vector search exists.
-- No provider is silently selected when its credential is absent.
+- No paid provider is silently selected when its credential is absent.
 - No answer is treated as a citation; source metadata is a separate typed result.
 - No local or CI result is represented as hosted or production proof.
 

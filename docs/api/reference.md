@@ -1,5 +1,8 @@
 # API Reference
 
+This is the HTTP contract for the `0.3.0` beta. All application routes are versioned under
+`/api/v1`; the root response points clients to health and schema endpoints.
+
 ## Conventions
 
 The product API is rooted at `/api/v1`. Built-in Swagger/ReDoc routes and the default public OpenAPI
@@ -76,7 +79,7 @@ Public service metadata and pointers to the protected schema and public health e
 ```json
 {
   "service": "Codebase Intelligence",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "openapi": "/api/v1/openapi.json",
   "liveness": "/api/v1/health/live",
   "readiness": "/api/v1/health/ready"
@@ -133,7 +136,7 @@ Protected, non-secret runtime configuration:
 ```json
 {
   "application": "Codebase Intelligence",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "environment": "development",
   "embedding": {
     "provider": "deterministic",

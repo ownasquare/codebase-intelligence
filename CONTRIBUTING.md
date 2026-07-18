@@ -1,105 +1,111 @@
 # Contributing
 
-Thank you for improving Codebase Intelligence. Contributions should preserve its central contract: repository content is untrusted data, retrieval is repository-scoped, and every answer location is backed by structured source metadata.
+Thanks for helping make Codebase Intelligence easier to trust, use, and extend.
 
-## Development setup
+Repository content is always untrusted data. Changes must keep retrieval repository-scoped and
+preserve file and line metadata from ingestion through citations.
 
-Install Python 3.12 and uv, then run:
+## Set up a development checkout
+
+Install Python 3.12, [uv](https://docs.astral.sh/uv/), Make, and Git.
 
 ```bash
 make sync
+make demo
 ```
 
-Use deterministic embeddings and extractive answers for development and tests unless a live-provider change explicitly needs separate opt-in validation:
+`make demo` starts the credential-free app in one terminal. Open <http://127.0.0.1:8501> and use
+`Ctrl+C` to stop it.
+
+Do not add credentials, private archives, proprietary snippets, provider responses, or
+unsanitized logs to fixtures or commits.
+
+## Choose the right extension point
+
+Read [Extending Codebase Intelligence](docs/development/extending.md) before adding a language,
+provider, source type, route, or interface feature. External entry-point plugins are not supported
+yet; extension seams are explicit in-tree contracts.
+
+Keep the main product path simple:
+
+1. add a repository;
+2. ask a question; and
+3. open cited source.
+
+Put advanced or destructive controls behind clear secondary disclosure in the interface.
+
+## Work in small, testable changes
+
+1. Read the nearest architecture, API, operations, or security document.
+2. Add a focused failing test for behavior changes.
+3. Implement the smallest complete typed change.
+4. Run focused tests while iterating.
+5. Run `make check` before requesting review.
+6. Update public documentation when behavior or contracts change.
+
+Examples of focused checks:
 
 ```bash
-CODEBASE_INTEL_EMBEDDING_PROVIDER=deterministic \
-CODEBASE_INTEL_ANSWER_PROVIDER=extractive \
-make test
+uv run pytest tests/unit/test_providers.py
+uv run pytest tests/api
+uv run pytest -m ui
 ```
 
-Never add a real credential, private repository archive, proprietary snippet, provider response, or unsanitized runtime log to a test fixture or commit.
+The default suite is deterministic and does not call paid providers. Tests marked `live` require
+explicit opt-in and must not run in the default CI path.
 
-## Change workflow
-
-1. Read the nearest architecture, API, operations, or security document before changing its contract.
-2. Add a focused failing test for behavior changes, including hostile and failure cases at trust boundaries.
-3. Implement the smallest complete change with typed public interfaces.
-4. Run focused tests while iterating, then run `make check` before requesting review.
-5. Update user, API, operations, threat-model, and completion documentation when behavior or evidence changes.
-6. Keep local, container, hosted, provider, and production proof clearly separated.
-
-## Quality gates
-
-The required local gate is:
+## Required gates
 
 ```bash
 make check
 ```
 
-It verifies Ruff lint and format, strict mypy, Bandit, pip-audit, deterministic tests, branch
-coverage, and the configured 80% coverage floor. The coverage denominator intentionally omits
-`src/codebase_intelligence/ui/app.py` because Streamlit AppTest executes it through an untraced
-script-runner context. UI/client state and interaction tests are a separate required gate; browser
-proof must state exactly which real and mock-backed states were exercised. Container changes must
-also pass:
+This runs Ruff lint and formatting checks, strict mypy, Bandit, dependency audit, deterministic
+tests, and branch coverage. Streamlit AppTest covers interface state and interaction separately
+from the source coverage denominator.
+
+For container changes, also run:
 
 ```bash
-docker compose config
+docker compose config --quiet
 docker build --tag codebase-intelligence:local .
 ```
 
-Do not disable, suppress, or weaken a warning merely to make a gate green. Document a genuine upstream false positive narrowly and add evidence for the exception.
+Do not hide or weaken a warning to make a gate pass. Document a genuine upstream exception
+narrowly.
 
-## Test guidance
+## Design and security rules
 
-- Unit tests cover pure validation, parsing, filtering, redaction, provider factories, and state rules.
-- Integration tests use temporary SQLite and embedded Qdrant storage.
-- API tests use FastAPI's in-process client and deterministic providers.
-- UI tests use Streamlit AppTest with a fake API client.
-- Evaluation fixtures assert expected source paths and unanswerable behavior.
-- Tests marked `live` are explicit, separately authorized checks; they must never run in the default CI suite.
-
-Prefer synthetic repositories that are small enough to audit by inspection. Cover path traversal, archive bombs, unsupported languages, parser failure, secret-shaped text, prompt injection, cross-repository retrieval, stale leases, illegal state transitions, and deletion readback when touching those surfaces.
-
-## Code style and design
-
-- Target Python 3.12 and keep strict mypy clean.
-- Keep modules focused and public interfaces typed.
-- Use Pydantic models for API and persisted domain contracts.
-- Keep blocking filesystem, parser, provider, and Qdrant work away from the async event loop.
-- Never mutate LlamaIndex global provider settings.
-- Never execute imported repository code, hooks, package managers, build scripts, or tests.
-- Never perform an unscoped vector search; every collection operation requires a repository ID.
-- Keep repository/job creation, reindex initiation, successful publication, and terminal processing
-  failure atomic across their paired SQLite records. Preserve the partial unique constraint
-  allowing only one queued/running job per repository.
-- Build a fresh versioned Qdrant collection before publication. Never delete or overwrite the
-  persisted active collection first, and keep failed reindex behavior on the last published version.
-- Renew job leases through the lease-only path; do not replay stage/progress from a heartbeat.
-- Query only the collection name persisted on a `ready` repository after verifying its persisted
-  index fingerprint against current settings.
-- Preserve original path and line metadata through redaction, chunking, indexing, retrieval, and citation rendering.
-- Return bounded, sanitized problem details; do not expose remote bodies or internal stack traces.
+- Target Python 3.12 and keep public interfaces typed.
+- Never execute imported repository code, hooks, builds, package managers, or tests.
+- Never perform an unscoped vector search.
+- Keep archive, file, chunk, question, and response limits bounded.
+- Keep blocking filesystem, parser, provider, and Qdrant work off the async event loop.
+- Do not mutate LlamaIndex global provider settings.
+- Build a new versioned collection before publishing it as active.
+- Query only the persisted active collection after its fingerprint and physical presence pass.
+- Keep repository/job lifecycle mutations atomic where documented.
+- Preserve original path and line metadata through redaction, indexing, retrieval, and rendering.
+- Return bounded, sanitized errors without remote bodies or internal stack traces.
 
 ## API compatibility
 
-Routes live under `/api/v1`. Additive fields should have safe defaults. Breaking route, state, error, or persistence changes require an explicit versioning and migration decision plus updates to the Streamlit client and API reference.
+Routes live under `/api/v1`. Additive response fields need safe defaults. A breaking route, state,
+error, or persistence change needs an explicit versioning and migration decision, client updates,
+and an updated [API reference](docs/api/reference.md).
 
-Built-in Swagger, ReDoc, and the default public OpenAPI path remain disabled. Generated OpenAPI is
-served by the protected `/api/v1/openapi.json` route and is a contract check, but it does not
-replace tests for status codes, authentication exemptions, request limits, error sanitization, and
-lifecycle behavior.
+The authenticated schema at `/api/v1/openapi.json` is a contract aid, not a replacement for
+behavior tests.
 
 ## Pull request checklist
 
-- [ ] Tests fail before and pass after the change.
-- [ ] `make check` passes without hidden warnings.
-- [ ] Docker/Compose validation passes when packaging changes.
-- [ ] No credential or private source is present in the diff or artifacts.
-- [ ] Security boundaries and resource limits are preserved.
-- [ ] API and UI behavior remain synchronized.
-- [ ] Documentation records exact validation scope and unverified layers.
+- [ ] Focused tests fail before and pass after the change.
+- [ ] `make check` passes.
+- [ ] Container validation passes when packaging changed.
+- [ ] No credential or private source appears in the diff or artifacts.
+- [ ] Security boundaries and resource limits remain intact.
+- [ ] API, client, and interface behavior stay synchronized.
+- [ ] User-facing and extension documentation is current.
 - [ ] New dependencies are necessary, locked, licensed appropriately, and audited.
 
-By contributing, you agree that your contribution is licensed under the project's MIT License.
+By contributing, you agree that your contribution is licensed under the [MIT License](LICENSE).

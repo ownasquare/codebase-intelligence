@@ -16,3 +16,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Local execution records are intentionally not part of the public project.
+docs/handoffs/
+docs/superpowers/
+logs/codex/issue-resolution/

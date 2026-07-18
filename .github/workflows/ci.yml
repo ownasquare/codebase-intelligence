@@ -38,6 +38,14 @@ jobs:
           uv lock --check
           uv sync --frozen --all-groups
 
+      - name: Build installable artifacts
+        run: uv build
+
+      - name: Smoke-test the command line
+        run: |
+          uv run codebase-intelligence --version
+          uv run codebase-intelligence --help
+
       - name: Ruff lint
         run: uv run ruff check .
 

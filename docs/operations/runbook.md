@@ -1,5 +1,8 @@
 # Operations Runbook
 
+Use [Getting started](../getting-started.md) for the normal local workflow. This runbook covers
+service topology, health, lifecycle recovery, backup, and production-shaped operation.
+
 ## Operating modes
 
 Codebase Intelligence supports two deliberate topologies:
@@ -88,7 +91,7 @@ The data directory must be on a local filesystem with reliable SQLite locking. D
 Validate resolved configuration before starting:
 
 ```bash
-docker compose config
+docker compose config --quiet
 ```
 
 Review the rendered output for provider mode, public ports, volume names, and secret-source integration. Do not paste rendered configuration into tickets because an operator may have supplied secrets.
@@ -160,7 +163,7 @@ Questions, source text, archive contents, token headers, provider payloads, and 
 3. Poll the job with bounded backoff.
 4. Confirm both `job.status == "succeeded"` and `repository.status == "ready"`.
 5. Inspect repository statistics and the provider/status endpoint before treating the index as usable.
-6. In the workbench, open at least one citation in **Explore** and confirm its indexed source path and line range match the finding.
+6. In the workbench, open at least one citation in **Source** and confirm its indexed path and line range match the finding.
 
 A `202` response proves only that work was queued. It does not prove acquisition, parsing, embedding, Qdrant persistence, or provider success.
 
@@ -324,7 +327,7 @@ Keep `.data.pre-restore` until the restored application passes readback. Do not 
 ## Upgrade and rollback
 
 1. Read release notes and diff `pyproject.toml`, `uv.lock`, SQLite schema code, provider models, parser/chunk settings, Docker bases, and Qdrant version.
-2. Run `make check`, `docker compose config`, and a clean image build.
+2. Run `make check`, `docker compose config --quiet`, and a clean image build.
 3. Back up the complete consistency set and test its restore.
 4. Exercise ingestion, question, reindex, cancellation, and deletion on a disposable staging deployment.
 5. Stop writers and deploy the image plus compatible Qdrant version.
