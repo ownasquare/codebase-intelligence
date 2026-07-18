@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     )
     api_key: SecretStr | None = None
 
-    embedding_provider: Literal["voyage", "openai", "deterministic"] = "voyage"
+    embedding_provider: Literal["voyage", "openai", "deterministic"] = "deterministic"
     voyage_embedding_model: str = "voyage-code-3"
     voyage_output_dimension: int = Field(default=1024, ge=256, le=2048)
     openai_embedding_model: str = "text-embedding-3-small"
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     voyage_api_key: SecretStr | None = Field(default=None, validation_alias="VOYAGE_API_KEY")
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
 
-    answer_provider: Literal["openai", "extractive"] = "openai"
+    answer_provider: Literal["openai", "extractive"] = "extractive"
     openai_chat_model: str = "gpt-5-mini"
     answer_timeout_seconds: float = Field(default=90.0, ge=1.0, le=300.0)
 

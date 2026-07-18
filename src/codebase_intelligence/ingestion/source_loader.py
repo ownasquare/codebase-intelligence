@@ -19,6 +19,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
+from codebase_intelligence import __version__
 from codebase_intelligence.config import Settings
 
 GITHUB_API_ORIGIN = "https://api.github.com"
@@ -192,7 +193,7 @@ class GitHubSourceLoader:
     def _headers(token: str | None) -> dict[str, str]:
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "codebase-intelligence/0.1",
+            "User-Agent": f"codebase-intelligence/{__version__}",
             "X-GitHub-Api-Version": "2022-11-28",
         }
         if token is not None:

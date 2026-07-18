@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codebase-intelligence"
-version = "0.2.0"
+version = "0.3.0"
 description = "Secure, cited RAG over GitHub codebases"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "Codebase Intelligence Contributors" }]
+keywords = ["rag", "code-search", "fastapi", "streamlit", "tree-sitter"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Framework :: FastAPI",
@@ -42,6 +43,7 @@ dependencies = [
 ]
 
 [project.scripts]
+codebase-intelligence = "codebase_intelligence.cli:main"
 codebase-intelligence-worker = "codebase_intelligence.worker:main"
 
 [dependency-groups]

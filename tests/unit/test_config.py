@@ -7,6 +7,15 @@ from codebase_intelligence.config import Settings
 from codebase_intelligence.models import GitHubRepositoryRequest
 
 
+def test_default_runtime_is_credential_free(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, _env_file=None)
+
+    assert settings.embedding_provider == "deterministic"
+    assert settings.answer_provider == "extractive"
+    assert settings.embedding_ready is True
+    assert settings.answer_ready is True
+
+
 def test_runtime_paths_are_derived_from_data_directory(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path)
 
