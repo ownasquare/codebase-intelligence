@@ -25,6 +25,10 @@ The scan covered all 90 files in the implementation commit; FastAPI routes and d
 
 Credential-shaped strings found by the masked scan are intentional adversarial fixtures or planning examples, chiefly in redaction/security tests and `tests/unit/test_repository.py:95`; the scan emitted locations and pattern classes only. Runtime caches, virtual environments, coverage files, bytecode, and local data are ignored. The two committed browser images contain only the synthetic sample repository and use matching JPEG extensions.
 
+### 2026-07-17 local startup follow-up scan
+
+No new product, security, lifecycle, API/UI contract, or runtime issue was found while executing the normal-use next step. An ignored credential-free `.env` was created; the locked environment was revalidated; FastAPI and Streamlit were started on loopback; database, deterministic embeddings, embedded Qdrant, inline worker, and Streamlit health all passed readback; the bundled synthetic repository indexed successfully; the rendered UI selected the ZIP input, discovered the ready repository, and answered an authentication question with citations; the final page title was `Codebase Intelligence`; and the browser console contained no warnings or errors. The tracked tree was clean before adding the required follow-up documentation. Optional inventory priorities below remain unchanged.
+
 The remaining items are deployment/acceptance enhancements, not missing local product behavior:
 
 ### P3 — Live provider and external-Qdrant acceptance matrix
@@ -193,6 +197,9 @@ Freshness: ✅ High — this summarizes the just-completed goal.
 9. Added durable completion documentation and sanitized screenshots; validated Markdown links and image types.
 10. Ran an independent read-only release audit, staged review, whitespace check, and masked secret scan; no P0/P1 blockers or likely real secrets were found.
 11. Committed the product as `a0bb804c7bc9da258be19c257718c850918a9321`.
+12. On a direct follow-up, created an ignored deterministic/extractive `.env`, revalidated 173 locked and 170 installed packages, and started the API and UI on `127.0.0.1:8000` and `127.0.0.1:8501`.
+13. Indexed the six-file bundled sample as repository `4847bfb6-399a-45d6-94bd-3519cc201ff6`; job `37df78cd-ed4b-43ea-8d21-20a8fe5ec672` succeeded on attempt 1.
+14. Left the in-app browser open on the ready workspace after an authentication question rendered exact citations; page identity, meaningful content, interaction, overlay, screenshot, and zero-warning/error console checks passed.
 
 ## 5. Testing, Validation & Quality Framework
 
@@ -213,6 +220,7 @@ Freshness: ✅ High — all results are from this completion session.
 - `docker compose config --quiet`: passed.
 - Docker image: build passed; runtime image reported healthy; `/api/v1/health/ready` returned `database`, `embedding`, `qdrant`, and `worker` all true.
 - Browser: actual desktop/mobile Streamlit against actual FastAPI; 6 files, 12 chunks, 1 redaction, 4 Tree-sitter chunks, 2 fallback chunks; authentication and payment answers cited exact fixture paths/symbols; reindex returned to ready; final desktop console clean.
+- Current local-use follow-up: `/api/v1/health/ready` again returned database, embedding, Qdrant, and worker all true; `/api/v1/status` confirmed deterministic/extractive demo providers; Streamlit health returned `ok`; the rendered authentication answer and citations passed with an empty warning/error console.
 
 Recommended reproduction commands must be prefixed with `/Users/fortunevieyra/.codex/bin/codex-secret-safe-exec.py --`; use that tool's `--argv-b64` form for commands containing shell-sensitive text, regex, inline code, environment assignments, or user-controlled values. The canonical command list is in `README.md`, `Makefile`, `CONTRIBUTING.md`, and `docs/operations/runbook.md`.
 
@@ -293,6 +301,8 @@ Freshness: ✅ High — paths were checked in this session.
 Freshness: ✅ High — seeded directly from the inventory above.
 
 There is no required next step to make the local project complete. For normal use, copy `.env.example` to `.env`, retain deterministic/extractive defaults or add an authorized provider key, then follow the README's API/UI or Compose startup path.
+
+The normal-use step has now been performed. At 2026-07-17 closeout, the credential-free API and UI were running on loopback, the sample repository was ready, and the user-facing browser tab was preserved. On resume, verify the endpoints because process state is ephemeral; if needed, run `make api` and `make ui` in separate terminals. The detailed runtime record is `/Users/fortunevieyra/Documents/Github/ai-projects/codebase-intelligence/docs/codebase-intelligence/2026-07-17-local-startup.md`.
 
 Prioritized optional sequence:
 
