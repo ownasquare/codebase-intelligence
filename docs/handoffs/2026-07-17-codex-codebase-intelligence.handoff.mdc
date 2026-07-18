@@ -11,13 +11,33 @@ Project: `/Users/fortunevieyra/Documents/Github/ai-projects/codebase-intelligenc
 
 Branch: `main`
 
-Implementation commit: `a0bb804c7bc9da258be19c257718c850918a9321`
+Phase 1 implementation commit: `a0bb804c7bc9da258be19c257718c850918a9321`
+
+Phase 2 implementation commit: `b049fff558df4991d3011699a498e54d08b16bb2`
 
 Remote: none configured
 
+Phase 2 status: complete for the local, credential-free product scope. The application is now a compact repository workbench with evidence-first investigation, an active-index source explorer, explainable retrieval signals, bounded/exportable investigation history, a restrained non-AI visual system, and exact citation-to-source navigation.
+
+## PHASE 2 COMPLETION RECORD
+
+- **Product:** Stable Investigate, Explore, Overview, and Manage views replace the oversized chat-oriented workspace. Returning users see their selected repository and question action first; import and runtime details stay secondary.
+- **Source safety:** Explorer responses are reconstructed only from the selected repository's currently published, already-redacted Qdrant nodes. The explorer never opens or serves raw uploaded snapshots.
+- **Retrieval quality:** Tree-sitter now parses valid local text and redaction runs on each emitted candidate, preserving structural ranges and type annotations while credential values remain redacted. The fingerprint advanced to `index-v3` / `secret-redaction-structure-v3` so older indexes cannot be presented as current.
+- **Real readback:** Repository `4847bfb6-399a-45d6-94bd-3519cc201ff6` indexed 6 files and 13 chunks. An authentication question ranked `authenticate_bearer_token` first, and the citation opened the exact indexed section at lines 16-24.
+- **Validation:** 157 deterministic tests passed in 13.18 seconds with 84.12% branch coverage. Ruff lint/format, strict mypy across 39 source files, Bandit, pip-audit, lockfile validation, package build, Compose validation, Docker image build, non-root healthy-container readback, desktop/mobile browser proof, and a clean final browser console all passed.
+- **Responsive proof:** The workbench had no page-level horizontal overflow at 1280x720 or 390x844. The selected ready repository and primary question action were visible in the first viewport.
+- **Proof boundary:** Live Voyage/OpenAI, private GitHub, external Qdrant, hosted-development, production, and native file-chooser Playwright acceptance remain unproven. No paid call, deployment, or external mutation was performed.
+- **Completion document:** `docs/codebase-intelligence/2026-07-17-phase-2-completion.md`.
+- **Plan:** `docs/superpowers/plans/2026-07-17-codebase-intelligence-phase-2.md` is fully checked off.
+
 ## INVENTORY NEXT ITEMS
 
-### Inventory scan result
+### Phase 2 inventory scan result
+
+No unresolved in-scope P0, P1, or P2 product, security, data-integrity, API-contract, UI, packaging, or container blocker was found after the Phase 2 implementation and final validation pass. The remaining inventory items below are optional deployment, external-provider, footprint, and evidence-continuity enhancements.
+
+### Historical Phase 1 inventory scan result
 
 No unresolved in-scope P0, P1, or P2 product, security, data-integrity, API-contract, UI, packaging, or container blocker was found.
 

@@ -4,6 +4,8 @@ Date: 2026-07-17 (America/Los_Angeles)
 
 Status: complete for the local, credential-free product scope.
 
+Implementation commit: `b049fff558df4991d3011699a498e54d08b16bb2`
+
 ## Outcome
 
 Phase 2 turns the Phase 1 repository chat into a compact repository workbench. A returning user can select a ready repository, investigate a question, inspect the redacted indexed source behind any citation, review repository health, and manage indexing without working through a conventional AI-chat interface.
