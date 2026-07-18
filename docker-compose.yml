@@ -1,0 +1,178 @@
+name: codebase-intelligence
+
+x-app-security: &app-security
+  init: true
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 256
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  restart: unless-stopped
+
+x-provider-environment: &provider-environment
+  CODEBASE_INTEL_ENVIRONMENT: ${CODEBASE_INTEL_ENVIRONMENT:-development}
+  CODEBASE_INTEL_LOG_LEVEL: ${CODEBASE_INTEL_LOG_LEVEL:-INFO}
+  CODEBASE_INTEL_DATA_DIR: /data
+  CODEBASE_INTEL_EMBEDDING_PROVIDER: ${CODEBASE_INTEL_EMBEDDING_PROVIDER:-deterministic}
+  CODEBASE_INTEL_ANSWER_PROVIDER: ${CODEBASE_INTEL_ANSWER_PROVIDER:-extractive}
+  CODEBASE_INTEL_QDRANT_URL: http://qdrant:6333
+  CODEBASE_INTEL_QDRANT_API_KEY: ${CODEBASE_INTEL_QDRANT_API_KEY:-}
+  VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.2-unprivileged
+    expose:
+      - "6333"
+      - "6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+    environment:
+      QDRANT__SERVICE__API_KEY: ${CODEBASE_INTEL_QDRANT_API_KEY:-}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    networks:
+      - data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    restart: unless-stopped
+
+  qdrant-probe:
+    <<: *app-security
+    image: codebase-intelligence:local
+    command:
+      - python
+      - -c
+      - import time; time.sleep(2147483647)
+    networks:
+      - data
+    depends_on:
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://qdrant:6333/readyz', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  api:
+    <<: *app-security
+    build:
+      context: .
+      target: runtime
+    image: codebase-intelligence:local
+    command:
+      - uvicorn
+      - codebase_intelligence.api.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    expose:
+      - "8000"
+    environment:
+      <<: *provider-environment
+      CODEBASE_INTEL_API_HOST: 0.0.0.0
+      CODEBASE_INTEL_API_PORT: "8000"
+      CODEBASE_INTEL_API_KEY: ${CODEBASE_INTEL_API_KEY:-}
+      CODEBASE_INTEL_INLINE_WORKER: "false"
+      CODEBASE_INTEL_ALLOWED_ORIGINS: '["http://127.0.0.1:8501","http://localhost:8501"]'
+    volumes:
+      - app_data:/data
+    networks:
+      - edge
+      - data
+    depends_on:
+      qdrant-probe:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; result=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)); raise SystemExit(result.get('status') != 'ok')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    <<: *app-security
+    image: codebase-intelligence:local
+    command:
+      - python
+      - -m
+      - codebase_intelligence.worker
+    environment:
+      <<: *provider-environment
+      CODEBASE_INTEL_INLINE_WORKER: "false"
+    volumes:
+      - app_data:/data
+    networks:
+      - edge
+      - data
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  ui:
+    <<: *app-security
+    image: codebase-intelligence:local
+    command:
+      - streamlit
+      - run
+      - src/codebase_intelligence/ui/app.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8501"
+      - --server.headless
+      - "true"
+      - --server.runOnSave
+      - "false"
+    ports:
+      - "127.0.0.1:${CODEBASE_INTEL_UI_PORT:-8501}:8501"
+    environment:
+      CODEBASE_INTEL_ENVIRONMENT: ${CODEBASE_INTEL_ENVIRONMENT:-development}
+      CODEBASE_INTEL_API_BASE_URL: http://api:8000
+      CODEBASE_INTEL_API_KEY: ${CODEBASE_INTEL_API_KEY:-}
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    networks:
+      - edge
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  edge:
+    driver: bridge
+  data:
+    driver: bridge
+    internal: true
+
+volumes:
+  app_data:
+    name: codebase-intelligence-data
+  qdrant_data:
+    name: codebase-intelligence-qdrant
+  qdrant_snapshots:
+    name: codebase-intelligence-qdrant-snapshots

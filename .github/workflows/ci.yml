@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CODEBASE_INTEL_ENVIRONMENT: test
+
+jobs:
+  quality:
+    name: Quality and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify lock and sync dependencies
+        run: |
+          uv lock --check
+          uv sync --frozen --all-groups
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: Strict mypy
+        run: uv run mypy
+
+      - name: Bandit
+        run: uv run bandit -c pyproject.toml -r src
+
+      - name: Dependency audit
+        run: uv run pip-audit --strict .
+
+      - name: Offline tests and branch coverage
+        run: >-
+          uv run pytest -m "not live"
+          --disable-socket
+          --allow-unix-socket
+          --cov=codebase_intelligence
+          --cov-branch
+          --cov-report=term-missing
+          --cov-report=xml
+
+  container:
+    name: Container build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: quality
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate Compose
+        run: docker compose config --quiet
+
+      - name: Build runtime image
+        run: docker build --tag codebase-intelligence:ci .

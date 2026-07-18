@@ -1,0 +1,28 @@
+[theme]
+base = "light"
+primaryColor = "#6D5EF8"
+backgroundColor = "#F7F8FC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#172033"
+linkColor = "#5146D8"
+borderColor = "#E2E7F0"
+showWidgetBorder = true
+baseRadius = "large"
+buttonRadius = "full"
+font = "sans-serif"
+headingFont = "sans-serif"
+codeFont = "monospace"
+
+[server]
+headless = true
+runOnSave = true
+maxUploadSize = 100
+enableXsrfProtection = true
+enableCORS = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = false
+toolbarMode = "viewer"

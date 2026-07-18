@@ -1,0 +1,14 @@
+[
+  {
+    "question": "Where is the authentication logic?",
+    "expected_paths": ["src/auth.py"]
+  },
+  {
+    "question": "How does the payment flow work?",
+    "expected_paths": ["src/payments.py", "src/gateway.py", "src/checkout.ts"]
+  },
+  {
+    "question": "Where is the fallback parser fixture?",
+    "expected_paths": ["src/broken.py"]
+  }
+]

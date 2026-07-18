@@ -1,0 +1,115 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codebase-intelligence"
+version = "0.1.0"
+description = "Secure, cited RAG over GitHub codebases"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Codebase Intelligence Contributors" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: FastAPI",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "fastapi==0.139.2",
+  "filelock>=3.19,<4",
+  "httpx==0.28.1",
+  "llama-index-core==0.14.23",
+  "llama-index-embeddings-openai==0.6.0",
+  "llama-index-embeddings-voyageai==0.6.1",
+  "llama-index-llms-openai==0.7.9",
+  "llama-index-vector-stores-qdrant==0.10.2",
+  "openai==2.46.0",
+  "pathspec==1.1.1",
+  "prometheus-client>=0.22,<1",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.14.2",
+  "python-multipart==0.0.32",
+  "qdrant-client==1.18.0",
+  "streamlit==1.59.2",
+  "structlog>=25.4,<26",
+  "tenacity>=9.1,<10",
+  "tree-sitter-language-pack==0.13.0",
+  "uvicorn[standard]==0.51.0",
+  "voyageai==0.3.7",
+]
+
+[project.scripts]
+codebase-intelligence-worker = "codebase_intelligence.worker:main"
+
+[dependency-groups]
+dev = [
+  "bandit>=1.8,<2",
+  "hypothesis>=6.140,<7",
+  "httpx2==2.7.0",
+  "mypy>=1.18,<2",
+  "pip-audit>=2.9,<3",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "pytest-cov>=6.2,<8",
+  "pytest-socket>=0.7,<1",
+  "respx>=0.22,<1",
+  "ruff>=0.13,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codebase_intelligence"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "integration: exercises SQLite or Qdrant persistence",
+  "live: makes explicitly opted-in GitHub or paid-provider calls",
+  "ui: exercises the Streamlit presentation layer",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["codebase_intelligence"]
+# Streamlit AppTest executes the script through an untraced script-runner context.
+# Its 15 state/interaction tests and browser checks are a separate rendered-UI gate.
+omit = ["src/codebase_intelligence/ui/app.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "S", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "S108"]
+"scripts/**/*.py" = ["S603"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+packages = ["codebase_intelligence"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["llama_index.*", "streamlit.*", "tree_sitter_language_pack.*"]
+ignore_missing_imports = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
