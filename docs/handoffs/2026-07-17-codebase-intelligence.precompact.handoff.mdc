@@ -2,7 +2,7 @@
 
 ## 1. Status
 
-Implementation and adversarial hardening are complete. All 131 deterministic tests pass with 83.36% branch coverage. Ruff, formatting, strict mypy, Bandit, pip-audit, lock/sync validation, and package builds pass. Integrated desktop/mobile browser proof and Docker Compose configuration proof pass; the Docker image build is currently finishing.
+Superseded by `/Users/fortunevieyra/Documents/Github/ai-projects/codebase-intelligence/docs/handoffs/2026-07-17-codex-codebase-intelligence.handoff.mdc`. The project is complete: 131 deterministic tests pass with 83.36% branch coverage; static, security, dependency, package, browser, Compose, Docker image, and healthy container-runtime proof all pass; the implementation is committed locally.
 
 ## 2. Objective
 
@@ -76,10 +76,7 @@ No external blocker is known. Remaining integration risks are API/ingestion cont
 
 ## 11. Next Actions
 
-1. Collect the Docker image build result and run the bounded container health smoke test.
-2. Write the per-repository completion documentation and post-chat handoff.
-3. Review the staged change set, run the final secret-safe scan, and commit locally.
-4. Mark the goal complete and report exact local, browser, package, and container proof boundaries.
+No required action remains in this historical pre-compaction package. Continue only from the final handoff linked in the status above; its inventory contains optional live-provider, image-size, Playwright file-chooser, and hosted-deployment follow-ups.
 
 ## 12. Resume Prompt
 
