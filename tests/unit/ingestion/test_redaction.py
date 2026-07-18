@@ -67,3 +67,21 @@ def test_redaction_is_idempotent() -> None:
 
     assert second.text == first.text
     assert second.redaction_count == 0
+
+
+def test_parameter_annotations_remain_readable_and_typed_defaults_are_redacted() -> None:
+    source = (
+        "def authenticate(token: str, access_token: str | None) -> bool:\n"
+        "    return bool(token and access_token)\n"
+        'auth_token: str = "real-secret-default"\n'
+        "token: deployment-secret-value\n"
+    )
+
+    result = redact_secrets(source)
+
+    assert "token: str" in result.text
+    assert "access_token: str | None" in result.text
+    assert 'auth_token: str = "[REDACTED:ASSIGNMENT]"' in result.text
+    assert "real-secret-default" not in result.text
+    assert "token: [REDACTED:ASSIGNMENT]" in result.text
+    assert "deployment-secret-value" not in result.text

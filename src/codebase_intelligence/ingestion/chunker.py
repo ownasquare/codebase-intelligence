@@ -278,6 +278,7 @@ class CodeChunker:
         self,
         *,
         path: str,
+        source_text: str,
         redaction: RedactionResult,
         spec: LanguageSpec,
         repository_id: str,
@@ -294,10 +295,10 @@ class CodeChunker:
                 commit_sha=commit_sha,
             )
         else:
-            content = text.encode("utf-8")
+            source_content = source_text.encode("utf-8")
             try:
-                tree = parser.parse(content)
-                candidates = self._symbol_candidates(tree.root_node, content, spec)
+                tree = parser.parse(source_content)
+                candidates = self._symbol_candidates(tree.root_node, source_content, spec)
             except (OSError, ValueError):
                 candidates = []
             if not candidates:
@@ -311,9 +312,12 @@ class CodeChunker:
             else:
                 chunks = []
                 for candidate in candidates:
-                    symbol_text = content[
+                    raw_symbol_text = source_content[
                         candidate.node.start_byte : candidate.node.end_byte
                     ].decode("utf-8")
+                    symbol_text = redact_secrets(raw_symbol_text).text
+                    symbol_redaction = redact_secrets(candidate.symbol)
+                    safe_symbol = None if symbol_redaction.changed else candidate.symbol
                     for segment, start_line, end_line in self._segments(
                         symbol_text,
                         candidate.start_line,
@@ -324,7 +328,7 @@ class CodeChunker:
                                 commit_sha=commit_sha,
                                 path=path,
                                 language=spec.name,
-                                symbol=candidate.symbol,
+                                symbol=safe_symbol,
                                 symbol_kind=candidate.kind,
                                 start_line=start_line,
                                 end_line=min(end_line, candidate.end_line),
@@ -420,6 +424,7 @@ class CodeChunker:
         return ChunkFileResult(
             chunks=self._chunk_redacted_text(
                 path=source_file.relative_path,
+                source_text=text,
                 redaction=redaction,
                 spec=spec,
                 repository_id=repository_id,
@@ -442,6 +447,7 @@ class CodeChunker:
         spec = self._registry.get(language) if language else self._registry.detect(path_text)
         return self._chunk_redacted_text(
             path=path_text,
+            source_text=text,
             redaction=redact_secrets(text),
             spec=spec,
             repository_id=repository_id,

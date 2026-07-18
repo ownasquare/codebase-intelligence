@@ -56,6 +56,41 @@ def test_class_and_method_are_separate_semantic_chunks(tmp_path: Path) -> None:
     assert all(chunk.parser == "tree_sitter" for chunk in chunks)
 
 
+def test_redaction_cannot_hide_later_top_level_python_symbols(tmp_path: Path) -> None:
+    fixture = Path("tests/fixtures/sample_repo/src/auth.py")
+
+    chunks = CodeChunker(settings(tmp_path)).chunk("auth.py", fixture.read_text())
+    symbols = {
+        (chunk.symbol, chunk.symbol_kind, chunk.start_line, chunk.end_line) for chunk in chunks
+    }
+
+    assert ("User", "class", 7, 9) in symbols
+    assert ("AuthenticationError", "class", 12, 13) in symbols
+    assert ("authenticate_bearer_token", "function", 16, 24) in symbols
+    authentication = next(chunk for chunk in chunks if chunk.symbol == "authenticate_bearer_token")
+    assert "token: str" in authentication.text
+
+
+def test_original_structure_keeps_nested_methods_distinct_and_redacted(tmp_path: Path) -> None:
+    secret = "example-super-sensitive-api-value"
+    source = (
+        "class AuthService:\n"
+        "    def verify(self, token: str) -> bool:\n"
+        f'        api_key = "{secret}"\n'
+        "        return bool(token and api_key)\n"
+    )
+
+    chunks = CodeChunker(settings(tmp_path)).chunk("auth.py", source)
+    identities = [
+        (chunk.symbol, chunk.symbol_kind, chunk.start_line, chunk.end_line) for chunk in chunks
+    ]
+
+    assert identities.count(("AuthService", "class", 1, 4)) == 1
+    assert identities.count(("verify", "method", 2, 4)) == 1
+    assert all(secret not in chunk.text for chunk in chunks)
+    assert all("[REDACTED:ASSIGNMENT]" in chunk.text for chunk in chunks)
+
+
 def test_typescript_function_uses_language_pack_parser(tmp_path: Path) -> None:
     source = "export function capturePayment(amount: number): boolean {\n  return amount > 0;\n}\n"
 

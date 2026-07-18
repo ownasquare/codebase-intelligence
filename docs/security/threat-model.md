@@ -2,7 +2,7 @@
 
 ## Scope
 
-This model covers repository acquisition, ZIP extraction, file selection, redaction, parsing, chunking, embedding, vector storage, retrieval, answer synthesis, the FastAPI boundary, Streamlit, durable jobs, and the provided container topology. It assumes an operator controls deployment configuration and that imported repositories, users, networks, model providers, and remote error messages may be hostile.
+This model covers repository acquisition, ZIP extraction, file selection, redaction, parsing, chunking, embedding, vector storage, retrieval, indexed-source exploration, answer synthesis, the FastAPI boundary, Streamlit, durable jobs, and the provided container topology. It assumes an operator controls deployment configuration and that imported repositories, users, networks, model providers, and remote error messages may be hostile.
 
 It does not certify a hosted environment, provider, base image, host kernel, reverse proxy, secret manager, or organizational process.
 
@@ -46,7 +46,7 @@ flowchart LR
     API -->|durable metadata| DB["SQLite trust domain"]
     Ingest -->|redacted chunks| Provider["External provider boundary"]
     Ingest -->|vectors and metadata| Qdrant["Vector storage boundary"]
-    Qdrant -->|scoped results| API
+    Qdrant -->|scoped results and redacted source sections| API
     API -->|answer and citations| Client
 ```
 
@@ -65,6 +65,7 @@ The GitHub token crosses only the client-to-API and API-to-GitHub boundaries. It
 | Prompt injection in code, docs, or history | Delimit and label contexts as untrusted; no tools attached to the answer model; validate generated source IDs; structured citations built independently | A model can still produce misleading prose; users must inspect cited source |
 | Hallucinated or unsupported answer | Repository readiness gate; scoped retrieval; lexical evidence check in extractive mode; insufficient-evidence response; citation validation and fallback | Retrieval can miss relevant code and scores are not correctness probabilities |
 | Cross-repository disclosure | Versioned collections carry an opaque repository UUID marker; exact active collection persisted in SQLite; repository ID required by every vector operation; payload repository ID checked on read; no global search | Qdrant/admin access bypasses application controls; isolate administrative credentials |
+| Raw or cross-version source disclosure through exploration | Source listing/detail require the repository's exact ready, current-fingerprint, physically present collection; Qdrant scrolls are repository-filtered and payload IDs are rechecked; exact normalized paths and bounded responses are required; only already-redacted indexed node content is returned | A redaction false negative remains present in the vector payload; raw snapshots must never be substituted for the explorer response path |
 | Stale or incompatible index queried | Query requires `ready`, a persisted collection name, a persisted fingerprint matching the complete embedding/parser/redaction/rerank/prefix/chunk contract, and physical collection readback; it searches only that exact collection and returns `INDEX_MISSING` when absent | Manual SQLite/Qdrant mutation or unmatched restore can still create inconsistent state; reindex rather than selecting a collection by prefix |
 | Unauthorized API or schema use | Optional constant-time `X-API-Key`; health-only exemptions; built-in Swagger/ReDoc/public OpenAPI disabled; schema served through the protected router; API not host-published in Compose | One shared key is not user identity, tenant authorization, rotation, or rate limiting |
 | Job duplication or stale worker | Repository/job lifecycle transactions; partial unique index allowing one queued/running job per repository; atomic claim; lease-owner checks; lease-only heartbeat; attempts and stale-lease recovery | SQLite topology is single-host; multiple workers and storage latency require load testing |

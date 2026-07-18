@@ -13,6 +13,7 @@ from codebase_intelligence.observability import get_logger
 from codebase_intelligence.providers import create_completion_provider
 from codebase_intelligence.rag_service import RAGService
 from codebase_intelligence.repository import RepositoryStore
+from codebase_intelligence.source_service import SourceExplorerService
 from codebase_intelligence.vector_store import CodeVectorIndex
 from codebase_intelligence.worker import JobWorker
 
@@ -37,6 +38,7 @@ class AppContainer:
         self.vector_index: CodeVectorIndex | None = None
         self.ingestion_service: IngestionService | None = None
         self.rag_service: RAGService | None = None
+        self.source_explorer: SourceExplorerService | None = None
         self.worker: JobWorker | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._embedding_initialization_failed = False
@@ -49,6 +51,11 @@ class AppContainer:
                     settings,
                     self.repositories,
                     self.jobs,
+                    self.vector_index,
+                )
+                self.source_explorer = SourceExplorerService(
+                    settings,
+                    self.repositories,
                     self.vector_index,
                 )
             except Exception as error:

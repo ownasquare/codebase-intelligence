@@ -12,6 +12,7 @@ from codebase_intelligence.models import (
     RepositoryRecord,
     RepositoryStats,
     RepositoryStatus,
+    RetrievalSignals,
     SourceKind,
 )
 from codebase_intelligence.providers import index_fingerprint
@@ -111,6 +112,13 @@ def result(text: str = "def authenticate(user):\n    return user.active") -> Ret
             content_hash="b" * 64,
         ),
         score=0.91,
+        retrieval_signals=RetrievalSignals(
+            semantic_score=0.91,
+            combined_score=2.1,
+            path_overlap=0.25,
+            symbol_overlap=0.25,
+            content_overlap=0.25,
+        ),
     )
 
 
@@ -162,6 +170,7 @@ async def test_extractive_answer_is_scoped_and_cited(tmp_path: Path) -> None:
     assert response.citations[0].permalink == (
         f"https://github.com/example/sample/blob/{'a' * 40}/src/auth.py#L10-L11"
     )
+    assert response.citations[0].retrieval_signals == result().retrieval_signals
 
 
 @pytest.mark.asyncio

@@ -160,8 +160,11 @@ Questions, source text, archive contents, token headers, provider payloads, and 
 3. Poll the job with bounded backoff.
 4. Confirm both `job.status == "succeeded"` and `repository.status == "ready"`.
 5. Inspect repository statistics and the provider/status endpoint before treating the index as usable.
+6. In the workbench, open at least one citation in **Explore** and confirm its indexed source path and line range match the finding.
 
 A `202` response proves only that work was queued. It does not prove acquisition, parsing, embedding, Qdrant persistence, or provider success.
+
+Source-list and source-detail responses prove only that the active redacted index can be read. They do not prove that raw snapshot bytes are safe to disclose, and operators must not replace the indexed-source path with direct filesystem serving.
 
 The source archive is moved into its durable repository directory before SQLite mutation. The
 repository manifest and ingest job are then inserted in one transaction and read back before the
@@ -175,6 +178,11 @@ redaction/rerank/chunk contract, Qdrant collection prefix, or after a recoverabl
 uses the immutable archive or extracted snapshot already stored for that repository; it does not
 refresh a moving GitHub ref. Moving the repository to `indexing` and inserting the reindex job is
 one transaction; existing active work returns a conflict rather than creating a second active job.
+
+Release `0.2.0` advances the parser/redaction structure contract. It parses unmodified local text
+only to obtain Tree-sitter ranges, redacts every exact candidate slice before indexing, and
+preserves parameter type annotations that are not assigned values. Collections created by the
+earlier contract intentionally fail the fingerprint gate until explicitly reindexed.
 
 The worker builds a new, versioned collection without changing the persisted active collection.
 It then atomically stores the new collection name/fingerprint, moves the repository to `ready`, and

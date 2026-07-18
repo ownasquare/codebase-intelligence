@@ -13,7 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from codebase_intelligence import __version__
 from codebase_intelligence.api.dependencies import require_api_key
-from codebase_intelligence.api.routes import health, jobs, query, repositories, status
+from codebase_intelligence.api.routes import explorer, health, jobs, query, repositories, status
 from codebase_intelligence.config import Settings
 from codebase_intelligence.container import AppContainer
 from codebase_intelligence.exceptions import CodebaseIntelligenceError
@@ -177,6 +177,7 @@ def create_app(
     protected = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
     protected.include_router(status.router)
     protected.include_router(repositories.router)
+    protected.include_router(explorer.router)
     protected.include_router(jobs.router)
     protected.include_router(query.router)
 

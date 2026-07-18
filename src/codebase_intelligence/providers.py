@@ -135,12 +135,12 @@ def index_fingerprint(settings: Settings) -> str:
     )
     contract = "|".join(
         [
-            "index-v1",
+            "index-v3",
             settings.embedding_provider,
             model,
             str(settings.embedding_dimension),
             "tree-sitter-language-pack-0.13.0",
-            "secret-redaction-v1",
+            "secret-redaction-structure-v3",
             "hybrid-rerank-v1",
             settings.qdrant_collection_prefix,
             str(settings.chunk_lines),

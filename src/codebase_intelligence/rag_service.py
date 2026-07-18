@@ -192,6 +192,7 @@ class RAGService:
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
                     score=result.score,
+                    retrieval_signals=result.retrieval_signals,
                     excerpt=excerpt,
                     permalink=self._permalink(
                         repository, chunk.path, chunk.start_line, chunk.end_line

@@ -132,3 +132,117 @@ def test_repository_collection_discovery_survives_prefix_changes(tmp_path: Path)
         assert changed.repository_collections("repo-a") == []
     finally:
         changed.close()
+
+
+@pytest.mark.integration
+def test_search_returns_explainable_retrieval_signals(tmp_path: Path) -> None:
+    index = CodeVectorIndex(settings_for(tmp_path))
+    try:
+        collection = index.index(
+            "repo-a",
+            [chunk("repo-a", "authenticate", "validate bearer user session", "src/auth.py")],
+        )
+
+        result = index.search(
+            "repo-a",
+            "authentication in auth path",
+            top_k=1,
+            collection_name=collection,
+        )[0]
+
+        signals = result.retrieval_signals
+        assert signals is not None
+        assert signals.semantic_score is not None
+        assert -1.0 <= signals.semantic_score <= 1.0
+        assert signals.combined_score >= signals.semantic_score
+        assert 0.0 <= signals.path_overlap <= 1.0
+        assert 0.0 <= signals.symbol_overlap <= 1.0
+        assert 0.0 <= signals.content_overlap <= 1.0
+    finally:
+        index.close()
+
+
+@pytest.mark.integration
+def test_active_index_source_listing_and_exact_detail_are_scoped(tmp_path: Path) -> None:
+    index = CodeVectorIndex(settings_for(tmp_path))
+    try:
+        auth_first = chunk(
+            "repo-a",
+            "authenticate",
+            "def authenticate(token): return validate(token)",
+            "src/auth.py",
+        ).model_copy(update={"start_line": 10, "end_line": 12})
+        auth_second = chunk(
+            "repo-a",
+            "validate",
+            "def validate(token): return token.startswith('session-')",
+            "src/auth.py",
+        ).model_copy(update={"start_line": 20, "end_line": 22})
+        payment = chunk(
+            "repo-a",
+            "capture",
+            "def capture(payment): return gateway.capture(payment)",
+            "src/payment.py",
+        ).model_copy(update={"start_line": 3, "end_line": 5})
+        collection = index.index("repo-a", [auth_second, payment, auth_first])
+        foreign_collection = index.index(
+            "repo-b",
+            [chunk("repo-b", "foreign", "secret foreign content", "src/private.py")],
+        )
+
+        files, total = index.list_sources(
+            "repo-a",
+            collection_name=collection,
+            query="validate",
+            language="PYTHON",
+            limit=20,
+        )
+        detail = index.get_source(
+            "repo-a",
+            collection_name=collection,
+            path="src/auth.py",
+        )
+        isolated, isolated_total = index.list_sources(
+            "repo-a",
+            collection_name=foreign_collection,
+        )
+
+        assert total == 1
+        assert [source.path for source in files] == ["src/auth.py"]
+        assert files[0].chunk_count == 2
+        assert files[0].symbol_count == 2
+        assert detail is not None
+        sections, truncated = detail
+        assert [section.start_line for section in sections] == [10, 20]
+        assert all(section.path == "src/auth.py" for section in sections)
+        assert truncated is False
+        assert isolated == []
+        assert isolated_total == 0
+    finally:
+        index.close()
+
+
+@pytest.mark.integration
+def test_source_listing_is_deterministic_and_bounded(tmp_path: Path) -> None:
+    index = CodeVectorIndex(settings_for(tmp_path))
+    try:
+        collection = index.index(
+            "repo-a",
+            [
+                chunk("repo-a", "zeta", "zeta", "zeta.py"),
+                chunk("repo-a", "alpha", "alpha", "Alpha.py"),
+            ],
+        )
+
+        files, total = index.list_sources(
+            "repo-a",
+            collection_name=collection,
+            limit=1,
+        )
+
+        assert total == 2
+        assert [source.path for source in files] == ["Alpha.py"]
+        with pytest.raises(ValueError, match="between 1 and 500"):
+            index.list_sources("repo-a", collection_name=collection, limit=0)
+    finally:
+        index.close()

@@ -165,6 +165,18 @@ class QuestionRequest(BaseModel):
     history: list[ChatMessage] = Field(default_factory=list, max_length=12)
 
 
+class RetrievalSignals(BaseModel):
+    """Explainable components used to rank one retrieved code chunk."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    semantic_score: float | None = Field(default=None, ge=-1.0, le=1.0)
+    combined_score: float
+    path_overlap: float = Field(ge=0.0, le=1.0)
+    symbol_overlap: float = Field(ge=0.0, le=1.0)
+    content_overlap: float = Field(ge=0.0, le=1.0)
+
+
 class Citation(BaseModel):
     source_id: str
     repository_id: str
@@ -176,6 +188,7 @@ class Citation(BaseModel):
     start_line: int
     end_line: int
     score: float | None = None
+    retrieval_signals: RetrievalSignals | None = None
     excerpt: str
     permalink: str | None = None
 
@@ -186,6 +199,59 @@ class QuestionResponse(BaseModel):
     citations: list[Citation]
     repository_id: str
     question: str
+
+
+class SourceFileSummary(BaseModel):
+    """Compact metadata for one file represented in the active index."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    language: str
+    chunk_count: int = Field(ge=1)
+    symbol_count: int = Field(ge=0)
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+
+
+class SourceSection(BaseModel):
+    """One already-redacted indexed section of a repository file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str
+    path: str
+    language: str
+    symbol: str | None = None
+    symbol_kind: str | None = None
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+    parser: Literal["tree_sitter", "fallback"]
+    content: str
+
+
+class SourceListResponse(BaseModel):
+    """Repository-scoped file catalog derived from one published collection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    repository_id: str
+    collection_name: str
+    total: int = Field(ge=0)
+    files: list[SourceFileSummary] = Field(default_factory=list)
+
+
+class SourceDetailResponse(BaseModel):
+    """Bounded indexed source sections for one exact repository-relative path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    repository_id: str
+    collection_name: str
+    path: str
+    language: str
+    sections: list[SourceSection] = Field(default_factory=list)
+    truncated: bool = False
 
 
 class ProviderState(BaseModel):

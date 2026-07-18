@@ -45,15 +45,30 @@ _AUTHORIZATION = re.compile(
     r"(?:bearer|basic|token)\s+)(?P<secret>[^\s,;]+)"
 )
 _CREDENTIAL_URL = re.compile(r"(?i)(?P<prefix>https?://[^/@\s:]+:)(?P<secret>[^@/\s]+)(?=@)")
+_CREDENTIAL_NAME = (
+    r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
+    r"password|passwd|private[_-]?key|secret|token)"
+)
+_TYPE_EXPRESSION = (
+    r"[A-Za-z_][A-Za-z0-9_.]*"
+    r"(?:\[[A-Za-z0-9_., |]+\])?"
+    r"(?:[ \t]*\|[ \t]*[A-Za-z_][A-Za-z0-9_.]*)*"
+)
+_TYPED_QUOTED_ASSIGNMENT = re.compile(
+    rf"(?im)(?P<prefix>\b{_CREDENTIAL_NAME}[ \t]*:[ \t]*{_TYPE_EXPRESSION}"
+    r"[ \t]*=[ \t]*)(?P<quote>[\"'])(?P<secret>[^\"'\r\n]+)(?P=quote)"
+)
+_TYPED_UNQUOTED_ASSIGNMENT = re.compile(
+    rf"(?im)(?P<prefix>\b{_CREDENTIAL_NAME}[ \t]*:[ \t]*{_TYPE_EXPRESSION}"
+    r"[ \t]*=[ \t]*)(?P<secret>[^\s,;#\"']+)"
+)
 _QUOTED_ASSIGNMENT = re.compile(
-    r"(?im)(?P<prefix>[\"']?(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
-    r"password|passwd|private[_-]?key|secret|token)[\"']?\s*[:=]\s*)"
+    rf"(?im)(?P<prefix>[\"']?{_CREDENTIAL_NAME}[\"']?\s*[:=]\s*)"
     r"(?P<quote>[\"'])(?P<secret>[^\"'\r\n]+)(?P=quote)"
 )
 _UNQUOTED_ASSIGNMENT = re.compile(
-    r"(?im)(?P<prefix>\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
-    r"password|passwd|private[_-]?key|secret|token)\s*[:=]\s*)"
-    r"(?P<secret>[^\s,;#\"']+)"
+    rf"(?im)(?P<prefix>\b{_CREDENTIAL_NAME}\s*(?P<separator>[:=])\s*)"
+    r"(?P<secret>[^\s,;#\"'(){}]+)"
 )
 _HIGH_ENTROPY_CANDIDATE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z0-9_+/=-]{40,}(?![A-Za-z0-9_])")
 
@@ -112,14 +127,41 @@ def redact_secrets(text: str) -> RedactionResult:
 
         return callback
 
+    def replace_assignment(match: re.Match[str]) -> str:
+        """Keep parameter type annotations readable while redacting assigned values."""
+
+        nonlocal count
+        secret = match.group("secret")
+        if secret.startswith("[REDACTED:"):
+            return match.group(0)
+        if match.groupdict().get("separator") == ":" and re.fullmatch(
+            _TYPE_EXPRESSION,
+            secret,
+        ):
+            remainder = match.string[match.end() :].lstrip(" \t")
+            union_or_end = re.match(
+                rf"^(?:\|[ \t]*{_TYPE_EXPRESSION}[ \t]*)*(?:,|\)|->)",
+                remainder,
+            )
+            already_redacted_default = remainder.startswith("=") and (
+                "[REDACTED:ASSIGNMENT]" in remainder[:200]
+            )
+            if union_or_end is not None or already_redacted_default:
+                return match.group(0)
+        count += 1
+        categories.append("assignment")
+        return f"{match.group('prefix')}[REDACTED:ASSIGNMENT]"
+
     try:
         redacted = _PRIVATE_KEY.sub(replace_whole("private_key"), redacted)
         # A truncated PEM block is unsafe even without its closing marker.
         redacted = _INCOMPLETE_PRIVATE_KEY.sub(replace_whole("private_key"), redacted)
         redacted = _AUTHORIZATION.sub(replace_group("authorization"), redacted)
         redacted = _CREDENTIAL_URL.sub(replace_group("url_credential"), redacted)
+        redacted = _TYPED_QUOTED_ASSIGNMENT.sub(replace_group("assignment"), redacted)
+        redacted = _TYPED_UNQUOTED_ASSIGNMENT.sub(replace_group("assignment"), redacted)
         redacted = _QUOTED_ASSIGNMENT.sub(replace_group("assignment"), redacted)
-        redacted = _UNQUOTED_ASSIGNMENT.sub(replace_group("assignment"), redacted)
+        redacted = _UNQUOTED_ASSIGNMENT.sub(replace_assignment, redacted)
         redacted = _KNOWN_TOKEN.sub(replace_whole("known_token"), redacted)
 
         def replace_entropy(match: re.Match[str]) -> str:

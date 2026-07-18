@@ -13,11 +13,17 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import BaseNode, TextNode
 from llama_index.core.vector_stores import VectorStoreQuery
+from llama_index.core.vector_stores.utils import metadata_dict_to_node
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
 
 from codebase_intelligence.config import Settings
-from codebase_intelligence.models import CodeChunk
+from codebase_intelligence.models import (
+    CodeChunk,
+    RetrievalSignals,
+    SourceFileSummary,
+    SourceSection,
+)
 from codebase_intelligence.providers import create_embedding_model
 
 _LEXEME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9]*")
@@ -36,12 +42,17 @@ _QUERY_STOP_WORDS = {
     "with",
     "work",
 }
+_SOURCE_SCROLL_PAGE_SIZE = 256
+_MAX_SOURCE_POINTS = 10_000
+_MAX_SOURCE_CHUNKS = 64
+_MAX_SOURCE_LINES = 400
 
 
 @dataclass(frozen=True, slots=True)
 class RetrievedChunk:
     chunk: CodeChunk
     score: float | None
+    retrieval_signals: RetrievalSignals | None = None
 
 
 class CodeVectorIndex:
@@ -137,22 +148,98 @@ class CodeVectorIndex:
         return terms
 
     @classmethod
-    def _hybrid_rank(cls, query: str, result: RetrievedChunk) -> float:
-        """Fuse semantic similarity with code-aware path/symbol lexical evidence."""
+    def _retrieval_signals(cls, query: str, result: RetrievedChunk) -> RetrievalSignals:
+        """Return the semantic and lexical components used for stable ranking."""
 
         query_terms = cls._lexemes(query, remove_stop_words=True)
-        if not query_terms:
-            return result.score or 0.0
         chunk = result.chunk
-        path_terms = cls._lexemes(chunk.path)
-        symbol_terms = cls._lexemes(chunk.symbol or "")
-        content_terms = cls._lexemes(chunk.text)
-        path_overlap = len(query_terms & path_terms) / len(query_terms)
-        symbol_overlap = len(query_terms & symbol_terms) / len(query_terms)
-        content_overlap = len(query_terms & content_terms) / len(query_terms)
-        return (
-            (result.score or 0.0) + (2.5 * path_overlap) + symbol_overlap + (0.75 * content_overlap)
+        if query_terms:
+            path_overlap = len(query_terms & cls._lexemes(chunk.path)) / len(query_terms)
+            symbol_overlap = len(query_terms & cls._lexemes(chunk.symbol or "")) / len(query_terms)
+            content_overlap = len(query_terms & cls._lexemes(chunk.text)) / len(query_terms)
+        else:
+            path_overlap = symbol_overlap = content_overlap = 0.0
+        semantic = None if result.score is None else max(-1.0, min(1.0, result.score))
+        combined = (
+            (semantic or 0.0) + (2.5 * path_overlap) + symbol_overlap + (0.75 * content_overlap)
         )
+        return RetrievalSignals(
+            semantic_score=semantic,
+            combined_score=combined,
+            path_overlap=path_overlap,
+            symbol_overlap=symbol_overlap,
+            content_overlap=content_overlap,
+        )
+
+    @staticmethod
+    def _chunk_from_node(repository_id: str, node: BaseNode) -> CodeChunk:
+        metadata = node.metadata
+        if metadata.get("repository_id") != repository_id:
+            raise RuntimeError("Qdrant returned a node outside the requested repository scope")
+        return CodeChunk(
+            id=str(metadata["chunk_id"]),
+            repository_id=repository_id,
+            commit_sha=metadata.get("commit_sha"),
+            path=str(metadata["path"]),
+            language=str(metadata["language"]),
+            symbol=metadata.get("symbol"),
+            symbol_kind=metadata.get("symbol_kind"),
+            start_line=int(metadata["start_line"]),
+            end_line=int(metadata["end_line"]),
+            parser=str(metadata["parser"]),
+            text=node.get_content(),
+            content_hash=str(metadata["content_hash"]),
+        )
+
+    def _scroll_chunks(
+        self,
+        repository_id: str,
+        *,
+        collection_name: str,
+        path: str | None = None,
+        max_points: int = _MAX_SOURCE_POINTS,
+    ) -> tuple[list[CodeChunk], bool]:
+        """Read bounded, repository-filtered redacted nodes from one active collection."""
+
+        conditions = [
+            models.FieldCondition(
+                key="repository_id",
+                match=models.MatchValue(value=repository_id),
+            )
+        ]
+        if path is not None:
+            conditions.append(
+                models.FieldCondition(key="path", match=models.MatchValue(value=path))
+            )
+        query_filter = models.Filter(must=conditions)
+        offset: models.ExtendedPointId | None = None
+        chunks: list[CodeChunk] = []
+        truncated = False
+        with self._lock:
+            if not self.client.collection_exists(collection_name):
+                return [], False
+            while len(chunks) < max_points:
+                page_limit = min(_SOURCE_SCROLL_PAGE_SIZE, max_points - len(chunks))
+                records, next_offset = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=query_filter,
+                    limit=page_limit,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for record in records:
+                    payload = record.payload
+                    if payload is None:
+                        continue
+                    node = metadata_dict_to_node(dict(payload))
+                    chunks.append(self._chunk_from_node(repository_id, node))
+                if next_offset is None:
+                    break
+                offset = next_offset
+            else:
+                truncated = True
+        return chunks, truncated
 
     def index(self, repository_id: str, chunks: Iterable[CodeChunk]) -> str:
         """Build a versioned collection in bounded batches without touching the active one."""
@@ -220,29 +307,122 @@ class CodeVectorIndex:
         )
         retrieved: list[RetrievedChunk] = []
         for node, score in zip(nodes, similarities, strict=True):
-            metadata = node.metadata
-            if metadata.get("repository_id") != repository_id:
-                raise RuntimeError("Qdrant returned a node outside the requested repository scope")
-            chunk = CodeChunk(
-                id=str(metadata["chunk_id"]),
-                repository_id=repository_id,
-                commit_sha=metadata.get("commit_sha"),
-                path=str(metadata["path"]),
-                language=str(metadata["language"]),
-                symbol=metadata.get("symbol"),
-                symbol_kind=metadata.get("symbol_kind"),
-                start_line=int(metadata["start_line"]),
-                end_line=int(metadata["end_line"]),
-                parser=str(metadata["parser"]),
-                text=node.get_content(),
-                content_hash=str(metadata["content_hash"]),
+            chunk = self._chunk_from_node(repository_id, node)
+            base_result = RetrievedChunk(chunk=chunk, score=score)
+            retrieved.append(
+                RetrievedChunk(
+                    chunk=chunk,
+                    score=score,
+                    retrieval_signals=self._retrieval_signals(query, base_result),
+                )
             )
-            retrieved.append(RetrievedChunk(chunk=chunk, score=score))
         ranked = sorted(
             enumerate(retrieved),
-            key=lambda item: (-self._hybrid_rank(query, item[1]), item[0]),
+            key=lambda item: (
+                -(
+                    item[1].retrieval_signals.combined_score
+                    if item[1].retrieval_signals is not None
+                    else 0.0
+                ),
+                item[0],
+            ),
         )
         return [result for _, result in ranked[:top_k]]
+
+    def list_sources(
+        self,
+        repository_id: str,
+        *,
+        collection_name: str,
+        query: str | None = None,
+        language: str | None = None,
+        limit: int = 200,
+    ) -> tuple[list[SourceFileSummary], int]:
+        """List file summaries reconstructed from the active redacted index."""
+
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        chunks, _ = self._scroll_chunks(
+            repository_id,
+            collection_name=collection_name,
+        )
+        normalized_language = language.casefold() if language else None
+        candidates = [
+            chunk
+            for chunk in chunks
+            if normalized_language is None or chunk.language.casefold() == normalized_language
+        ]
+        normalized_query = query.casefold().strip() if query else ""
+        if normalized_query:
+            matching_paths = {
+                chunk.path
+                for chunk in candidates
+                if normalized_query
+                in f"{chunk.path}\n{chunk.symbol or ''}\n{chunk.text}".casefold()
+            }
+            candidates = [chunk for chunk in candidates if chunk.path in matching_paths]
+
+        grouped: dict[str, list[CodeChunk]] = {}
+        for chunk in candidates:
+            grouped.setdefault(chunk.path, []).append(chunk)
+        summaries: list[SourceFileSummary] = []
+        for path, file_chunks in grouped.items():
+            symbols = {chunk.symbol for chunk in file_chunks if chunk.symbol}
+            summaries.append(
+                SourceFileSummary(
+                    path=path,
+                    language=file_chunks[0].language,
+                    chunk_count=len(file_chunks),
+                    symbol_count=len(symbols),
+                    start_line=min(chunk.start_line for chunk in file_chunks),
+                    end_line=max(chunk.end_line for chunk in file_chunks),
+                )
+            )
+        summaries.sort(key=lambda source: (source.path.casefold(), source.path))
+        return summaries[:limit], len(summaries)
+
+    def get_source(
+        self,
+        repository_id: str,
+        *,
+        collection_name: str,
+        path: str,
+    ) -> tuple[list[SourceSection], bool] | None:
+        """Return bounded redacted sections for one exact repository-relative path."""
+
+        chunks, scroll_truncated = self._scroll_chunks(
+            repository_id,
+            collection_name=collection_name,
+            path=path,
+            max_points=_MAX_SOURCE_CHUNKS + 1,
+        )
+        if not chunks:
+            return None
+        chunks.sort(key=lambda chunk: (chunk.start_line, chunk.end_line, chunk.id))
+        selected: list[CodeChunk] = []
+        selected_lines = 0
+        for chunk in chunks[:_MAX_SOURCE_CHUNKS]:
+            line_count = chunk.end_line - chunk.start_line + 1
+            if selected and selected_lines + line_count > _MAX_SOURCE_LINES:
+                break
+            selected.append(chunk)
+            selected_lines += line_count
+        sections = [
+            SourceSection(
+                chunk_id=chunk.id,
+                path=chunk.path,
+                language=chunk.language,
+                symbol=chunk.symbol,
+                symbol_kind=chunk.symbol_kind,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                parser=chunk.parser,
+                content=chunk.text,
+            )
+            for chunk in selected
+        ]
+        truncated = scroll_truncated or len(selected) < len(chunks)
+        return sections, truncated
 
     def delete(
         self,

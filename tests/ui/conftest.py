@@ -23,7 +23,12 @@ from codebase_intelligence.models import (
     RepositoryRecord,
     RepositoryStats,
     RepositoryStatus,
+    RetrievalSignals,
+    SourceDetailResponse,
+    SourceFileSummary,
     SourceKind,
+    SourceListResponse,
+    SourceSection,
     StatusResponse,
 )
 from codebase_intelligence.ui.client import ApiError
@@ -75,8 +80,13 @@ class FakeApiClient:
         self.github_calls: list[dict[str, Any]] = []
         self.upload_calls: list[dict[str, Any]] = []
         self.question_calls: list[dict[str, Any]] = []
+        self.source_list_calls: list[dict[str, Any]] = []
+        self.source_detail_calls: list[dict[str, str]] = []
+        self.list_jobs_calls: list[dict[str, Any]] = []
         self.reindex_calls: list[str] = []
         self.delete_calls: list[str] = []
+        self.question_error: ApiError | None = None
+        self.source_error: ApiError | None = None
 
     def health(self) -> HealthResponse:
         return HealthResponse(status="ok", checks={"manifest": True, "qdrant": True})
@@ -84,7 +94,7 @@ class FakeApiClient:
     def status(self) -> StatusResponse:
         return StatusResponse(
             application="Codebase Intelligence",
-            version="0.1.0",
+            version="0.2.0",
             environment="test",
             embedding=ProviderState(
                 provider="deterministic",
@@ -163,6 +173,148 @@ class FakeApiClient:
             started_at=NOW,
         )
 
+    def list_jobs(
+        self,
+        *,
+        repository_id: str | None = None,
+        status: JobStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[JobRecord]:
+        self.list_jobs_calls.append(
+            {
+                "repository_id": repository_id,
+                "status": status,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+        if repository_id is None:
+            return []
+        repository = next(
+            (item for item in self.repositories if item.id == repository_id),
+            None,
+        )
+        if repository is None:
+            return []
+        if repository.status in {RepositoryStatus.QUEUED, RepositoryStatus.INDEXING}:
+            return [self.get_job("job-created")]
+        return [
+            JobRecord(
+                id=f"job-{repository_id}",
+                repository_id=repository_id,
+                kind="ingest",
+                status=JobStatus.SUCCEEDED,
+                stage=JobStage.COMPLETE,
+                progress=100,
+                attempt=1,
+                created_at=NOW,
+                updated_at=NOW,
+                started_at=NOW,
+                completed_at=NOW,
+            )
+        ][:limit]
+
+    def list_sources(
+        self,
+        repository_id: str,
+        *,
+        query: str | None = None,
+        language: str | None = None,
+        limit: int = 200,
+    ) -> SourceListResponse:
+        self.source_list_calls.append(
+            {
+                "repository_id": repository_id,
+                "query": query,
+                "language": language,
+                "limit": limit,
+            }
+        )
+        if self.source_error is not None:
+            raise self.source_error
+        files = [
+            SourceFileSummary(
+                path="src/auth/service.py",
+                language="python",
+                chunk_count=2,
+                symbol_count=2,
+                start_line=1,
+                end_line=48,
+            ),
+            SourceFileSummary(
+                path="src/payments/checkout.ts",
+                language="typescript",
+                chunk_count=3,
+                symbol_count=2,
+                start_line=1,
+                end_line=72,
+            ),
+        ]
+        if query:
+            needle = query.casefold()
+            files = [item for item in files if needle in item.path.casefold()]
+        if language:
+            files = [item for item in files if item.language == language]
+        files = files[:limit]
+        return SourceListResponse(
+            repository_id=repository_id,
+            collection_name=f"repo_{repository_id}",
+            total=len(files),
+            files=files,
+        )
+
+    def get_source(self, repository_id: str, path: str) -> SourceDetailResponse:
+        self.source_detail_calls.append({"repository_id": repository_id, "path": path})
+        if self.source_error is not None:
+            raise self.source_error
+        if path == "src/payments/checkout.ts":
+            language = "typescript"
+            sections = [
+                SourceSection(
+                    chunk_id="checkout-section",
+                    path=path,
+                    language=language,
+                    symbol="capturePayment",
+                    symbol_kind="function",
+                    start_line=20,
+                    end_line=34,
+                    parser="tree_sitter",
+                    content=(
+                        "export function capturePayment(order: Order) {\n"
+                        "  return gateway.capture(order.authorization);\n"
+                        "}"
+                    ),
+                )
+            ]
+        else:
+            language = "python"
+            sections = [
+                SourceSection(
+                    chunk_id="auth-section",
+                    path="src/auth/service.py",
+                    language=language,
+                    symbol="authenticate_request",
+                    symbol_kind="function",
+                    start_line=18,
+                    end_line=36,
+                    parser="tree_sitter",
+                    content=(
+                        "def authenticate_request(request):\n"
+                        "    token = '[REDACTED:ASSIGNMENT]'\n"
+                        "    return sessions.verify(request, token)"
+                    ),
+                )
+            ]
+        return SourceDetailResponse(
+            repository_id=repository_id,
+            collection_name=f"repo_{repository_id}",
+            path=path,
+            language=language,
+            sections=sections,
+            truncated=False,
+        )
+
     def reindex_repository(self, repository_id: str) -> RepositoryCreateResponse:
         self.reindex_calls.append(repository_id)
         return RepositoryCreateResponse(
@@ -185,6 +337,8 @@ class FakeApiClient:
         top_k: int = 8,
         history: list[Any] | None = None,
     ) -> QuestionResponse:
+        if self.question_error is not None:
+            raise self.question_error
         self.question_calls.append(
             {
                 "repository_id": repository_id,
@@ -210,6 +364,13 @@ class FakeApiClient:
                     start_line=18,
                     end_line=36,
                     score=0.943,
+                    retrieval_signals=RetrievalSignals(
+                        semantic_score=0.943,
+                        combined_score=3.443,
+                        path_overlap=1.0,
+                        symbol_overlap=0.5,
+                        content_overlap=0.5,
+                    ),
                     excerpt="\n".join(
                         (
                             "def authenticate_request(request):",

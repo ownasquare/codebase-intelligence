@@ -14,11 +14,14 @@ from codebase_intelligence.models import (
     ChatMessage,
     HealthResponse,
     JobRecord,
+    JobStatus,
     ProblemDetail,
     QuestionRequest,
     QuestionResponse,
     RepositoryCreateResponse,
     RepositoryRecord,
+    SourceDetailResponse,
+    SourceListResponse,
     StatusResponse,
 )
 
@@ -188,6 +191,40 @@ class ApiClient:
             RepositoryRecord,
         )
 
+    def list_sources(
+        self,
+        repository_id: str,
+        *,
+        query: str | None = None,
+        language: str | None = None,
+        limit: int = 200,
+    ) -> SourceListResponse:
+        """Return the bounded redacted source catalog for one active repository index."""
+
+        repository_path = self._identifier(repository_id)
+        params: dict[str, str | int] = {"limit": limit}
+        if query and query.strip():
+            params["q"] = query.strip()
+        if language and language.strip():
+            params["language"] = language.strip()
+        return self._get_model(
+            f"/api/v1/repositories/{repository_path}/sources",
+            SourceListResponse,
+            params=params,
+        )
+
+    def get_source(self, repository_id: str, path: str) -> SourceDetailResponse:
+        """Return indexed redacted sections for one exact repository-relative path."""
+
+        repository_path = self._identifier(repository_id)
+        if not path.strip():
+            raise ApiError("A source path is required.", code="invalid_source_path")
+        return self._get_model(
+            f"/api/v1/repositories/{repository_path}/source",
+            SourceDetailResponse,
+            params={"path": path},
+        )
+
     def delete_repository(self, repository_id: str) -> None:
         repository_path = self._identifier(repository_id)
         self._request("DELETE", f"/api/v1/repositories/{repository_path}")
@@ -225,8 +262,44 @@ class ApiClient:
         job_path = self._identifier(job_id)
         return self._get_model(f"/api/v1/jobs/{job_path}", JobRecord)
 
-    def _get_model(self, path: str, model: type[ModelT]) -> ModelT:
-        return self._validate_model(model, self._request_json("GET", path))
+    def list_jobs(
+        self,
+        *,
+        repository_id: str | None = None,
+        status: JobStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[JobRecord]:
+        """List durable jobs using the API's existing bounded filter contract."""
+
+        params: dict[str, str | int] = {"limit": limit, "offset": offset}
+        if repository_id is not None:
+            cleaned_repository_id = repository_id.strip()
+            if not cleaned_repository_id:
+                raise ApiError(
+                    "A repository identifier is required.",
+                    code="invalid_identifier",
+                )
+            params["repository_id"] = cleaned_repository_id
+        if status is not None:
+            params["status"] = status.value
+
+        payload = self._request_json("GET", "/api/v1/jobs", params=params)
+        if not isinstance(payload, list):
+            raise ApiError(
+                "The API returned an unexpected job list.",
+                code="invalid_response",
+            )
+        try:
+            return [JobRecord.model_validate(item) for item in payload]
+        except ValidationError as exc:
+            raise ApiError(
+                "The API returned an unexpected job record.",
+                code="invalid_response",
+            ) from exc
+
+    def _get_model(self, path: str, model: type[ModelT], **kwargs: Any) -> ModelT:
+        return self._validate_model(model, self._request_json("GET", path, **kwargs))
 
     def _request_json(self, method: str, path: str, **kwargs: Any) -> object:
         response = self._request(method, path, **kwargs)

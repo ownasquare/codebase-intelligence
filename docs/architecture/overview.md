@@ -19,6 +19,8 @@ flowchart TB
     Pipeline --> Embed["LlamaIndex embedding adapter"]
     Embed --> Qdrant["Versioned Qdrant collections per repository"]
     API --> Qdrant
+    Qdrant --> Explorer["Redacted active-index source explorer"]
+    Explorer --> API
     API --> Answer["OpenAI answer adapter or extractive mode"]
 ```
 
@@ -28,7 +30,7 @@ Streamlit does not read SQLite, repository files, Qdrant, GitHub, or model provi
 
 ### FastAPI
 
-The API exposes liveness/readiness, provider status, repository creation and lifecycle operations, durable jobs, and questions. It performs request validation, request-ID propagation, optional `X-API-Key` authentication, conservative CORS, bounded uploads, exception-to-problem mapping, and synchronous delete orchestration.
+The API exposes liveness/readiness, provider status, repository creation and lifecycle operations, durable jobs, questions, and repository-scoped indexed-source exploration. It performs request validation, request-ID propagation, optional `X-API-Key` authentication, conservative CORS, bounded uploads, exception-to-problem mapping, and synchronous delete orchestration.
 
 For a private GitHub source, the API receives `X-GitHub-Token` and uses it only for acquisition. It
 moves the downloaded archive into the durable repository directory before inserting a token-free
@@ -115,9 +117,15 @@ repository namespace, not just the currently published collection.
 
 Embedded Qdrant is suitable for the single-process local mode. API and worker processes require Qdrant Server so both observe the same vector state.
 
+### Indexed-source explorer
+
+The source explorer uses the manifest's active `collection_name` as its only catalog. After the same readiness, fingerprint, physical-collection, and repository-scope checks used by questions, it scrolls bounded Qdrant payloads and reconstructs their LlamaIndex nodes. File summaries group those nodes by repository-relative path; a detail request returns ordered, line-aware sections for one exact path.
+
+This design deliberately avoids a second SQLite source catalog. Atomic collection publication already defines the index version, so citations and previews observe the same redacted payloads without a dual-write or migration boundary. The explorer never opens the immutable archive or extracted snapshot. Those raw bytes remain worker input and may contain values that redaction removed before indexing.
+
 ### Streamlit
 
-The UI is an API client. It supports GitHub and ZIP onboarding, request-scoped private tokens, job progress, repository state and statistics, sample questions, repository-scoped conversation history, source cards, reindex, and confirmed delete. It renders API problem details only after client-side sanitization.
+The UI is an API client organized as a repository workbench. It supports secondary GitHub and ZIP onboarding, request-scoped private tokens, job progress, repository selection, Investigate/Explore/Overview/Manage views, repository-scoped session history, citation-to-source navigation, Markdown export, reindex, and confirmed delete. It renders API problem details only after client-side sanitization. Runtime/provider diagnostics are disclosure content rather than the primary workflow, and ready workspaces do not poll the entire question surface.
 
 ## Lifecycle state
 
@@ -214,6 +222,21 @@ cross-system transaction.
 10. Generated source IDs are checked against the retrieved set. Missing or unknown IDs cause an
    extractive fallback.
 11. Structured citations are returned independently of the answer prose.
+
+The citation response may include retrieval signals for semantic similarity and deterministic path,
+symbol, and content overlap. Their weighted combination determines rank; it is an explanation of
+retrieval behavior, not a calibrated confidence score.
+
+## Source exploration sequence
+
+1. The API applies the same authentication and repository lookup used by other protected routes.
+2. It requires the repository to be `ready`, with a current fingerprint and a persisted active collection.
+3. It verifies that exact physical collection exists.
+4. A bounded Qdrant scroll is filtered by the requested repository ID.
+5. Payloads are reconstructed as indexed LlamaIndex nodes and checked again for repository scope.
+6. File listing groups path, language, line, chunk, and symbol metadata with deterministic ordering.
+7. Source detail accepts one exact repository-relative indexed path and returns ordered redacted sections.
+8. The raw archive and extracted snapshot are never read on this request path.
 
 ## Deletion consistency
 

@@ -20,6 +20,7 @@ def test_provider_readiness_is_truthful_without_credentials(tmp_path: Path) -> N
     voyage = Settings(
         data_dir=tmp_path,
         embedding_provider="voyage",
+        answer_provider="openai",
         voyage_api_key=None,
         openai_api_key=None,
     )

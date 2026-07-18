@@ -76,7 +76,7 @@ Public service metadata and pointers to the protected schema and public health e
 ```json
 {
   "service": "Codebase Intelligence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "openapi": "/api/v1/openapi.json",
   "liveness": "/api/v1/health/live",
   "readiness": "/api/v1/health/ready"
@@ -133,7 +133,7 @@ Protected, non-secret runtime configuration:
 ```json
 {
   "application": "Codebase Intelligence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "environment": "development",
   "embedding": {
     "provider": "deterministic",
@@ -245,6 +245,71 @@ the same atomic lifecycle transaction and `202` response as GitHub ingestion.
 
 Returns one repository record. `404` means the ID does not exist; clients should not infer deletion success solely from a missing UI card.
 
+### `GET /api/v1/repositories/{repository_id}/sources`
+
+Returns a bounded, path-sorted file catalog reconstructed from the repository's active redacted Qdrant collection. The endpoint applies the same ready-state, current-index-fingerprint, physical-collection, and repository-scope checks as question retrieval.
+
+Optional query parameters:
+
+| Parameter | Default | Boundary | Meaning |
+|---|---:|---:|---|
+| `q` | empty | 100 characters | Case-insensitive match across indexed path, symbol, or redacted content |
+| `language` | empty | 50 characters | Exact case-insensitive indexed language filter |
+| `limit` | `200` | `1`–`500` | Maximum file summaries returned |
+
+```json
+{
+  "repository_id": "opaque-repository-id",
+  "collection_name": "codebase_intel_opaqueid_a1b2c3d4e5f6",
+  "total": 1,
+  "files": [
+    {
+      "path": "src/auth/session.py",
+      "language": "python",
+      "chunk_count": 2,
+      "symbol_count": 2,
+      "start_line": 1,
+      "end_line": 48
+    }
+  ]
+}
+```
+
+`total` is the complete filtered file count before `limit` is applied. An empty `files` array is a successful no-match result. The response does not read the raw archive or extracted snapshot.
+
+### `GET /api/v1/repositories/{repository_id}/source`
+
+Returns ordered indexed sections for one exact repository-relative path. Supply the required `path` query parameter and let the HTTP client encode nested paths:
+
+```http
+GET /api/v1/repositories/opaque-repository-id/source?path=src%2Fauth%2Fsession.py
+```
+
+```json
+{
+  "repository_id": "opaque-repository-id",
+  "collection_name": "codebase_intel_opaqueid_a1b2c3d4e5f6",
+  "path": "src/auth/session.py",
+  "language": "python",
+  "sections": [
+    {
+      "chunk_id": "stable-application-chunk-id",
+      "path": "src/auth/session.py",
+      "language": "python",
+      "symbol": "authenticate_request",
+      "symbol_kind": "function",
+      "start_line": 12,
+      "end_line": 29,
+      "parser": "tree_sitter",
+      "content": "def authenticate_request(request):\n    return sessions.verify(request)"
+    }
+  ],
+  "truncated": false
+}
+```
+
+The returned content is the already-redacted text stored in the active index. Responses are bounded by section and indexed-line limits; `truncated` indicates that additional indexed sections were omitted. A path absent from that repository's active index returns `404`. A non-ready, stale-fingerprint, or physically missing active index returns `409` through the standard problem envelope.
+
 ### `DELETE /api/v1/repositories/{repository_id}`
 
 Synchronously rejects a running job, cancels queued work, and removes every versioned Qdrant
@@ -315,6 +380,13 @@ Response:
       "start_line": 10,
       "end_line": 28,
       "score": 0.87,
+      "retrieval_signals": {
+        "semantic_score": 0.87,
+        "combined_score": 2.445,
+        "path_overlap": 0.25,
+        "symbol_overlap": 0.5,
+        "content_overlap": 0.6
+      },
       "excerpt": "def capture_payment(...): ...",
       "permalink": "https://github.com/acme/payments-service/blob/commit/src/payments.py#L10-L28"
     }
@@ -329,6 +401,11 @@ payload whose repository ID does not match. `answer_mode` is `openai` only when 
 valid known citation IDs; otherwise the service falls back to `extractive`. An unanswerable question
 returns an insufficient-evidence answer and an empty citation list rather than inventing a source
 location.
+
+`retrieval_signals` is additive and may be absent on older stored/client fixtures. `semantic_score`
+is the bounded vector similarity while path, symbol, and content values are lexical overlap ratios.
+`combined_score` is the deterministic weighted value used to rank candidates. These fields explain
+retrieval; none is a calibrated probability or model-confidence claim.
 
 ## Jobs
 

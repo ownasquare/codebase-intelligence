@@ -1,6 +1,6 @@
 # Codebase Intelligence
 
-Codebase Intelligence is a repository-scoped RAG application for questions such as “Where is the authentication logic?” and “How does the payment flow work?” It accepts a GitHub repository or ZIP archive, parses supported source with Tree-sitter, indexes line-accurate chunks through LlamaIndex and Qdrant, and returns answers with file, symbol, and line citations.
+Codebase Intelligence is a repository-scoped code investigation workbench for questions such as “Where is the authentication logic?” and “How does the payment flow work?” It accepts a GitHub repository or ZIP archive, parses supported source with Tree-sitter, indexes line-accurate chunks through LlamaIndex and Qdrant, and returns findings with file, symbol, and line citations that open directly in an indexed-source explorer.
 
 The project combines a FastAPI system of record, a durable ingestion worker, and a Streamlit interface. Repository content is always treated as untrusted data: it is bounded, filtered, redacted, parsed, and retrieved, but never executed.
 
@@ -13,6 +13,9 @@ The project combines a FastAPI system of record, a durable ingestion worker, and
   publishes exactly one persisted collection as the active index.
 - Synthesizes grounded answers with OpenAI or returns ranked extractive evidence without an answer-model credential.
 - Preserves source path, symbol, language, line range, score, commit SHA, and GitHub permalink metadata.
+- Browses the exact redacted chunks in the active published index, so source previews and answer evidence cannot drift between index versions.
+- Explains retrieval with semantic, path, symbol, and content match signals without representing a heuristic rank as model confidence.
+- Provides a compact Investigate, Explore, Overview, and Manage workspace with clearable, Markdown-exportable session history.
 - Exposes versioned APIs, durable job progress, reindex, queued-job cancellation, and synchronous
   deletion with vector/filesystem readback plus an acknowledged manifest delete commit.
 
@@ -42,12 +45,14 @@ Create a safe sample ZIP:
 python -m zipfile -c /tmp/codebase-intelligence-sample.zip tests/fixtures/sample_repo
 ```
 
-Open `http://127.0.0.1:8501`, choose **ZIP archive**, upload the sample, wait for the job to reach **ready**, and ask:
+Open `http://127.0.0.1:8501`, expand **Add repository**, choose **ZIP archive**, upload the sample, wait for the job to reach **ready**, and ask from **Investigate**:
 
 - `Where is the authentication logic?`
 - `How does the payment flow work?`
 
 Extractive mode intentionally lists the strongest cited locations instead of inventing a prose explanation. It is a useful local demonstration, not a semantic-quality benchmark for Voyage or OpenAI embeddings.
+
+Each evidence row can open the corresponding indexed file in **Explore**. The preview is reconstructed from redacted Qdrant payloads; the UI does not serve raw uploaded repository snapshots.
 
 ## API quickstart
 
@@ -179,6 +184,8 @@ flowchart LR
     P --> E["LlamaIndex embedding provider"]
     E --> Q["Repository-isolated, versioned Qdrant collections"]
     API --> Q
+    Q --> X["Redacted indexed-source explorer"]
+    X --> API
     API --> A["OpenAI synthesis or extractive answer"]
 ```
 
