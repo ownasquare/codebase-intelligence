@@ -28,9 +28,11 @@ Streamlit workbench. Imported code is treated as untrusted text and is never exe
 
 You need Python 3.12, [uv](https://docs.astral.sh/uv/), Make, and Git.
 
-From the project checkout, run:
+Clone the project and run:
 
 ```bash
+git clone https://github.com/ownasquare/codebase-intelligence.git
+cd codebase-intelligence
 make demo
 ```
 
@@ -139,6 +141,7 @@ and tests in this repository.
 - [Contributing](CONTRIBUTING.md)
 - [Support](SUPPORT.md)
 - [Changelog](CHANGELOG.md)
+- [Report an issue](https://github.com/ownasquare/codebase-intelligence/issues)
 
 ## License
 
