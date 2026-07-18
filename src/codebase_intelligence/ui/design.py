@@ -5,8 +5,8 @@ APP_STYLES = """
   :root {
     --ci-ink: #172033;
     --ci-muted: #647084;
-    --ci-line: #d9dee7;
-    --ci-line-strong: #bcc5d2;
+    --ci-line: #cbd2dc;
+    --ci-line-strong: #aeb8c6;
     --ci-canvas: #f6f7f9;
     --ci-surface: #ffffff;
     --ci-subtle: #eef2f5;
@@ -40,13 +40,13 @@ APP_STYLES = """
 
   [data-testid="stVerticalBlockBorderWrapper"] {
     background: var(--ci-surface);
-    border-color: var(--ci-line);
+    border: 1px solid var(--ci-line) !important;
     border-radius: 9px;
     box-shadow: none;
   }
   [data-testid="stMetric"] {
     background: var(--ci-surface);
-    border: 1px solid var(--ci-line);
+    border: 1px solid var(--ci-line) !important;
     border-radius: 8px;
     padding: 0.65rem 0.75rem;
   }
@@ -65,6 +65,11 @@ APP_STYLES = """
     align-items: center;
     border-radius: 6px;
     padding: 0.15rem 0.7rem;
+  }
+  [data-testid="stRadio"] label:has(input:checked) {
+    background: var(--ci-surface);
+    border: 1px solid var(--ci-line-strong);
+    color: var(--ci-ink);
   }
 
   div.stButton > button,
@@ -95,19 +100,33 @@ APP_STYLES = """
   input:focus-visible,
   textarea:focus-visible,
   [role="radio"]:focus-visible,
+  [role="button"]:focus-visible,
+  [data-testid="stExpander"] summary:focus-visible,
   a:focus-visible {
     outline: 3px solid var(--ci-focus) !important;
     outline-offset: 2px;
+  }
+  [data-baseweb="input"] > div:focus-within,
+  [data-baseweb="textarea"] > div:focus-within,
+  [data-baseweb="select"] > div:focus-within,
+  [data-testid="stFileUploaderDropzone"]:focus-within {
+    border-color: var(--ci-focus) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ci-focus) 24%, transparent) !important;
   }
 
   [data-testid="stTextInputRootElement"],
   [data-testid="stTextAreaRootElement"],
   [data-baseweb="select"] > div {
+    border-color: var(--ci-line-strong);
     border-radius: 7px;
+  }
+  [data-testid="stForm"] {
+    border-color: var(--ci-line) !important;
+    border-radius: 9px;
   }
   [data-testid="stExpander"] {
     background: var(--ci-surface);
-    border-color: var(--ci-line);
+    border-color: var(--ci-line-strong);
     border-radius: 8px;
     box-shadow: none;
   }

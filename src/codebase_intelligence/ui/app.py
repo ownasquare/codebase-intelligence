@@ -35,7 +35,7 @@ from codebase_intelligence.ui.investigation import (
     normalize_histories,
 )
 
-WORKSPACE_VIEWS = ("Investigate", "Explore", "Overview", "Manage")
+WORKSPACE_VIEWS = ("Ask", "Source", "Repository")
 SAMPLE_QUESTIONS = (
     "Where is authentication enforced?",
     "How does the payment flow work?",
@@ -130,8 +130,22 @@ def _status_label(status: RepositoryStatus) -> str:
     }[status]
 
 
-def _remember_job(created: RepositoryCreateResponse) -> None:
+def _remember_job(created: RepositoryCreateResponse, *, reset_view: bool = True) -> None:
+    st.session_state["_pending_repository_id"] = created.repository_id
     st.session_state["selected_repository_id"] = created.repository_id
+    if reset_view:
+        st.session_state["workspace_view"] = "Ask"
+
+
+def _repository_changed() -> None:
+    chosen_id = st.session_state.get("repository_selector")
+    if isinstance(chosen_id, str):
+        st.session_state["selected_repository_id"] = chosen_id
+    st.session_state["workspace_view"] = "Ask"
+
+
+def _prefill_question(question_key: str, question: str) -> None:
+    st.session_state[question_key] = question
 
 
 def _submit_github(
@@ -198,11 +212,13 @@ def _render_import(client: ApiClient, settings: Settings, *, key_prefix: str) ->
                 "GitHub repository URL",
                 key=f"{key_prefix}_github_url",
                 placeholder="https://github.com/owner/repository",
+                help="Paste the HTTPS address of the repository to index.",
             )
             ref = st.text_input(
                 "Branch, tag, or commit (optional)",
                 key=f"{key_prefix}_github_ref",
                 placeholder="main",
+                help="Leave blank to use the repository's default branch.",
             )
             token = st.text_input(
                 "Private repository token (optional)",
@@ -229,12 +245,16 @@ def _render_import(client: ApiClient, settings: Settings, *, key_prefix: str) ->
                 "Repository ZIP",
                 type=["zip"],
                 accept_multiple_files=False,
-                help=f"Maximum compressed size: {_format_bytes(settings.max_archive_bytes)}.",
+                help=(
+                    "Upload a repository archive. Maximum compressed size: "
+                    f"{_format_bytes(settings.max_archive_bytes)}."
+                ),
             )
             name = st.text_input(
                 "Display name (optional)",
                 key=f"{key_prefix}_zip_name",
                 placeholder="my-service",
+                help="A short name shown in this workspace.",
             )
             uploaded = st.form_submit_button(
                 "Add ZIP repository",
@@ -272,56 +292,67 @@ def _render_sidebar(
         st.markdown("### Repositories")
         if repositories:
             repository_by_id = {repository.id: repository for repository in repositories}
+            pending_id = st.session_state.pop("_pending_repository_id", None)
+            if isinstance(pending_id, str) and pending_id in repository_by_id:
+                st.session_state["selected_repository_id"] = pending_id
+                st.session_state["repository_selector"] = pending_id
+
             selected_id = st.session_state.get("selected_repository_id")
             if not isinstance(selected_id, str) or selected_id not in repository_by_id:
                 selected_id = repositories[0].id
                 st.session_state["selected_repository_id"] = selected_id
+            selector_value = st.session_state.get("repository_selector")
+            if not isinstance(selector_value, str) or selector_value not in repository_by_id:
+                st.session_state["repository_selector"] = selected_id
             options = [repository.id for repository in repositories]
-            selected_index = options.index(selected_id)
             chosen_id = st.selectbox(
                 "Repository",
                 options,
-                index=selected_index,
                 format_func=lambda item: repository_by_id[item].name,
                 key="repository_selector",
+                help="Switching repositories returns you to Ask.",
+                on_change=_repository_changed,
             )
             st.session_state["selected_repository_id"] = chosen_id
             selected = repository_by_id[chosen_id]
-            with st.expander("Add repository", expanded=False):
+            with st.expander("Add repository", expanded=False, type="compact"):
                 _render_import(client, settings, key_prefix="sidebar")
         else:
             st.caption("No repositories indexed yet.")
 
         st.divider()
-        st.markdown(f"**Service** · {_service_label(health, status)}")
-        st.caption(_display_origin(settings.api_base_url))
-        with st.expander("Runtime details", expanded=False):
+        with st.expander("System", expanded=False, type="compact"):
+            st.caption(
+                f"{_service_label(health, status)} · {_display_origin(settings.api_base_url)}"
+            )
             if status is None:
                 st.caption("Runtime details are unavailable.")
             else:
                 st.caption(f"Version {status.version} · {status.environment}")
-                st.write(f"Embeddings · {status.embedding.provider}")
-                st.caption(f"{status.embedding.model} · {status.embedding.mode}")
-                st.write(f"Answers · {status.answer.provider}")
-                st.caption(f"{status.answer.model} · {status.answer.mode}")
-                st.write(f"Vector store · Qdrant {status.qdrant_mode}")
-                st.caption("Inline worker" if status.inline_worker else "Background worker")
+                st.caption(
+                    f"Embeddings: {status.embedding.provider} · Answers: {status.answer.provider}"
+                )
+                worker = "inline" if status.inline_worker else "background"
+                st.caption(f"Qdrant: {status.qdrant_mode} · Worker: {worker}")
     return selected
 
 
-def _render_product_bar(repository: RepositoryRecord | None, *, service_label: str) -> None:
+def _render_product_bar(repository: RepositoryRecord | None) -> None:
     identity, state = st.columns([4, 1])
-    identity.markdown("## Codebase Intelligence")
+    identity.title(
+        "Codebase Intelligence",
+        anchor=False,
+        help="Ask questions about an indexed repository and verify every answer in source.",
+    )
     if repository is None:
-        identity.caption("Repository evidence workbench")
+        identity.caption("Understand a repository through cited source.")
     else:
         context = repository.name
         if repository.source_ref:
             context += f" · {repository.source_ref}"
         identity.caption(context)
-    state.markdown(f"**{service_label}**")
     if repository is not None:
-        state.caption(_status_label(repository.status))
+        state.markdown(f"**{_status_label(repository.status)}**")
     st.divider()
 
 
@@ -338,9 +369,7 @@ def _render_active_status(client: ApiClient, repository: RepositoryRecord) -> No
     job = jobs[0] if jobs else None
     progress = job.progress if job is not None else 0
     stage = job.stage.value.replace("_", " ").title() if job is not None else "Preparing"
-    st.info("Indexing is in progress. This status panel refreshes automatically.")
     st.progress(progress, text=f"{stage} · {progress}%")
-    st.caption(f"{stage} · {progress}% complete")
     if job is not None and job.status in {JobStatus.SUCCEEDED, JobStatus.FAILED}:
         st.rerun()
     if job is not None and job.status is JobStatus.FAILED:
@@ -357,10 +386,11 @@ def _save_histories(histories: object) -> None:
     st.session_state["investigation_histories"] = normalize_histories(histories)
 
 
-def _run_question(client: ApiClient, repository: RepositoryRecord, question: str) -> None:
+def _run_question(client: ApiClient, repository: RepositoryRecord, question: str) -> bool:
     cleaned_question = question.strip()
     if not cleaned_question:
-        return
+        _set_notice("warning", "Enter a question before finding evidence.")
+        return False
     histories = _histories()
     entries = history_for(histories, repository.id)
     try:
@@ -381,6 +411,7 @@ def _run_question(client: ApiClient, repository: RepositoryRecord, question: str
                 public_message=_friendly_error(error),
             )
         )
+    return True
 
 
 def _match_reasons(citation: Citation) -> list[str]:
@@ -399,17 +430,23 @@ def _match_reasons(citation: Citation) -> list[str]:
     return reasons
 
 
-def _open_in_explorer(repository_id: str, path: str, start_line: int) -> None:
-    st.session_state["workspace_view"] = "Explore"
+def _open_in_source(repository_id: str, path: str, start_line: int) -> None:
+    st.session_state["workspace_view"] = "Source"
     st.session_state[f"source_file_{repository_id}"] = path
     st.session_state[f"source_line_{repository_id}"] = start_line
     st.session_state.pop(f"source_query_{repository_id}", None)
     st.session_state[f"source_language_{repository_id}"] = "All languages"
 
 
-def _render_citation(repository: RepositoryRecord, citation: Citation, index: int) -> None:
+def _render_citation(
+    repository: RepositoryRecord,
+    citation: Citation,
+    *,
+    finding_index: int,
+    citation_index: int,
+) -> None:
     symbol = f" · {citation.symbol}" if citation.symbol else ""
-    label = f"{index}. {citation.path}:{citation.start_line}-{citation.end_line}{symbol}"
+    label = f"{citation_index}. {citation.path}:{citation.start_line}-{citation.end_line}{symbol}"
     with st.expander(label, expanded=False):
         detail = citation.language
         if citation.symbol_kind:
@@ -420,9 +457,11 @@ def _render_citation(repository: RepositoryRecord, citation: Citation, index: in
             st.caption(" · ".join(reasons))
         st.code(citation.excerpt, language=citation.language or None, line_numbers=False)
         st.button(
-            "Open in explorer",
-            key=f"open_source_{repository.id}_{citation.source_id}_{index}",
-            on_click=_open_in_explorer,
+            f"View evidence {finding_index}.{citation_index} in Source",
+            key=(
+                f"open_source_{repository.id}_{citation.source_id}_{finding_index}_{citation_index}"
+            ),
+            on_click=_open_in_source,
             args=(repository.id, citation.path, citation.start_line),
             use_container_width=True,
         )
@@ -457,7 +496,12 @@ def _render_finding(
                 citation = Citation.model_validate(raw_citation)
             except ValueError:
                 continue
-            _render_citation(repository, citation, citation_index)
+            _render_citation(
+                repository,
+                citation,
+                finding_index=index,
+                citation_index=citation_index,
+            )
 
 
 def _safe_export_filename(name: str) -> str:
@@ -465,9 +509,12 @@ def _safe_export_filename(name: str) -> str:
     return f"{cleaned.strip('-') or 'repository'}-investigation.md"
 
 
-def _render_investigate(client: ApiClient, repository: RepositoryRecord) -> None:
-    st.subheader("Investigate", anchor=False)
-    st.caption("Ask a focused question, then verify the finding against indexed source.")
+def _render_ask(client: ApiClient, repository: RepositoryRecord) -> None:
+    st.subheader(
+        "Ask",
+        anchor=False,
+        help="Ask one focused question. Each finding includes the source used to support it.",
+    )
     histories = _histories()
     entries = history_for(histories, repository.id)
 
@@ -479,6 +526,7 @@ def _render_investigate(client: ApiClient, repository: RepositoryRecord) -> None
             placeholder="Where is authentication enforced?",
             height=92,
             max_chars=4000,
+            help="Be specific about a feature, flow, symbol, or behavior.",
         )
         submitted = st.form_submit_button(
             "Find evidence",
@@ -486,21 +534,28 @@ def _render_investigate(client: ApiClient, repository: RepositoryRecord) -> None
             use_container_width=True,
         )
     if submitted:
-        _run_question(client, repository, question)
-        st.session_state["_clear_question"] = question_key
+        if _run_question(client, repository, question):
+            st.session_state["_clear_question"] = question_key
         st.rerun()
 
-    st.caption("Examples")
-    sample_columns = st.columns(3)
-    selected_sample: str | None = None
-    for column, sample in zip(sample_columns, SAMPLE_QUESTIONS, strict=True):
-        if column.button(sample, key=f"sample_{repository.id}_{sample}", use_container_width=True):
-            selected_sample = sample
-    if selected_sample:
-        _run_question(client, repository, selected_sample)
-        st.rerun()
+    with st.expander("Example questions", expanded=False, type="compact"):
+        for sample in SAMPLE_QUESTIONS:
+            st.button(
+                sample,
+                key=f"sample_{repository.id}_{sample}",
+                on_click=_prefill_question,
+                args=(question_key, sample),
+                use_container_width=True,
+            )
 
-    if entries:
+    for index, entry in enumerate(reversed(entries), start=1):
+        _render_finding(repository, entry, index)
+
+    if not entries:
+        st.caption("Findings will appear here with links to the supporting source.")
+        return
+
+    with st.expander("Save or clear findings", expanded=False, type="compact"):
         actions = st.columns(2)
         markdown = export_markdown(repository, entries)
         actions[0].download_button(
@@ -511,17 +566,12 @@ def _render_investigate(client: ApiClient, repository: RepositoryRecord) -> None
             use_container_width=True,
         )
         if actions[1].button(
-            "Clear investigation",
+            "Clear findings",
             key=f"clear_history_{repository.id}",
             use_container_width=True,
         ):
             _save_histories(clear_history(histories, repository.id))
             st.rerun()
-    else:
-        st.info("No findings yet. Start with a focused implementation question.")
-
-    for index, entry in enumerate(reversed(entries), start=1):
-        _render_finding(repository, entry, index)
 
 
 def _source_languages(repository: RepositoryRecord) -> list[str]:
@@ -539,12 +589,17 @@ def _selected_file(
     current = st.session_state.get(key)
     if not isinstance(current, str) or current not in options:
         st.session_state[key] = options[0]
-    return st.selectbox("Indexed file", options, key=key)
+    return st.selectbox(
+        "Indexed file",
+        options,
+        key=key,
+        help="Choose a file from the current filtered list.",
+    )
 
 
 def _render_source_detail(detail: SourceDetailResponse, *, target_line: int | None = None) -> None:
     st.markdown(f"### `{detail.path}`")
-    st.caption("Indexed and redacted preview · raw repository files are never served here.")
+    st.caption("Indexed, redacted preview")
     if detail.truncated:
         st.warning("This preview was truncated to the configured indexed-section limit.")
     if not detail.sections:
@@ -560,29 +615,34 @@ def _render_source_detail(detail: SourceDetailResponse, *, target_line: int | No
     )
     for index, section in enumerate(detail.sections):
         symbol = section.symbol or "Indexed section"
-        metadata = (
-            f"lines {section.start_line}-{section.end_line} · {section.parser.replace('_', ' ')}"
-        )
-        with st.expander(f"{symbol} · {metadata}", expanded=index == target_index):
+        lines = f"lines {section.start_line}-{section.end_line}"
+        with st.expander(f"{symbol} · {lines}", expanded=index == target_index):
+            details = [section.parser.replace("_", " ").title()]
             if section.symbol_kind:
-                st.caption(section.symbol_kind.replace("_", " ").title())
+                details.insert(0, section.symbol_kind.replace("_", " ").title())
+            st.caption(" · ".join(details))
             st.code(section.content, language=section.language or None, line_numbers=False)
 
 
-def _render_explore(client: ApiClient, repository: RepositoryRecord) -> None:
-    st.subheader("Explore", anchor=False)
-    st.caption("Browse only the redacted sections published in this repository's active index.")
+def _render_source(client: ApiClient, repository: RepositoryRecord) -> None:
+    st.subheader(
+        "Source",
+        anchor=False,
+        help="Search and inspect the redacted sections stored in the active index.",
+    )
     filter_columns = st.columns([3, 2])
     query = filter_columns[0].text_input(
         "Search indexed files",
         key=f"source_query_{repository.id}",
         placeholder="auth, checkout, configuration…",
+        help="Filter by file path or name.",
     )
     language_options = _source_languages(repository)
     language = filter_columns[1].selectbox(
         "Language",
         language_options,
         key=f"source_language_{repository.id}",
+        help="Limit the file list to one language.",
     )
     try:
         sources = client.list_sources(
@@ -595,7 +655,7 @@ def _render_explore(client: ApiClient, repository: RepositoryRecord) -> None:
         st.error(_friendly_error(error))
         return
     if not sources.files:
-        st.info("No indexed files match these filters.")
+        st.caption("No indexed files match these filters.")
         return
     selected_path = _selected_file(repository, sources.files)
     if selected_path is None:
@@ -617,14 +677,34 @@ def _render_explore(client: ApiClient, repository: RepositoryRecord) -> None:
     )
 
 
-def _render_overview(client: ApiClient, repository: RepositoryRecord) -> None:
-    st.subheader("Index overview", anchor=False)
+def _render_repository(client: ApiClient, repository: RepositoryRecord) -> None:
+    st.subheader(
+        "Repository",
+        anchor=False,
+        help="Review what was indexed. Maintenance controls stay collapsed below.",
+    )
     stats = repository.stats
     metrics = st.columns(4)
-    metrics[0].metric("Files", f"{stats.file_count:,}")
-    metrics[1].metric("Indexed sections", f"{stats.chunk_count:,}")
-    metrics[2].metric("Indexed size", _format_bytes(stats.indexed_bytes))
-    metrics[3].metric("Redactions", f"{stats.redaction_count:,}")
+    metrics[0].metric(
+        "Files",
+        f"{stats.file_count:,}",
+        help="Source files included in the active index.",
+    )
+    metrics[1].metric(
+        "Sections",
+        f"{stats.chunk_count:,}",
+        help="Searchable source sections created during indexing.",
+    )
+    metrics[2].metric(
+        "Indexed size",
+        _format_bytes(stats.indexed_bytes),
+        help="Total source content retained after indexing limits.",
+    )
+    metrics[3].metric(
+        "Redactions",
+        f"{stats.redaction_count:,}",
+        help="Potential secrets removed before content was indexed.",
+    )
 
     with st.container(border=True):
         st.markdown("**Repository source**")
@@ -648,17 +728,18 @@ def _render_overview(client: ApiClient, repository: RepositoryRecord) -> None:
             )
             st.write(f"Languages · {language_summary}")
 
-    st.markdown("### Recent indexing activity")
-    jobs = _latest_jobs(client, repository.id)
-    if not jobs:
-        st.caption("No job activity is available.")
-    for job in jobs:
-        with st.container(border=True):
+    with st.expander("Index history", expanded=False, type="compact"):
+        jobs = _latest_jobs(client, repository.id)
+        if not jobs:
+            st.caption("No index activity is available.")
+        for job in jobs:
             st.write(f"**{job.kind.value.title()}** · {_status_label_for_job(job)}")
             st.caption(
                 f"{job.stage.value.replace('_', ' ').title()} · {job.progress}% · "
                 f"attempt {job.attempt}"
             )
+
+    _render_maintenance(client, repository)
 
 
 def _status_label_for_job(job: JobRecord) -> str:
@@ -668,7 +749,7 @@ def _status_label_for_job(job: JobRecord) -> str:
 def _reindex_repository(client: ApiClient, repository: RepositoryRecord) -> None:
     try:
         created = client.reindex_repository(repository.id)
-        _remember_job(created)
+        _remember_job(created, reset_view=False)
         histories = _histories()
         _save_histories(mark_stale(histories, repository.id))
         _set_notice("success", "A fresh index has been queued. Prior findings are marked stale.")
@@ -689,51 +770,50 @@ def _delete_repository(client: ApiClient, repository: RepositoryRecord) -> None:
     st.rerun()
 
 
-def _render_manage(client: ApiClient, repository: RepositoryRecord) -> None:
-    st.subheader("Manage", anchor=False)
-    st.caption("Maintenance and destructive actions are kept outside the investigation flow.")
-    with st.container(border=True):
-        st.markdown("**Refresh the index**")
-        st.caption("Rebuild from the immutable imported source using the current index settings.")
-        if st.button(
-            "Reindex repository",
-            key=f"reindex_{repository.id}",
-            use_container_width=True,
-        ):
-            _reindex_repository(client, repository)
+def _render_maintenance(client: ApiClient, repository: RepositoryRecord) -> None:
+    with st.expander("Maintenance", expanded=False, type="compact"):
+        with st.container(border=True):
+            st.markdown("**Refresh index**")
+            if st.button(
+                "Reindex repository",
+                key=f"reindex_{repository.id}",
+                help="Rebuild the index from the imported source.",
+                use_container_width=True,
+            ):
+                _reindex_repository(client, repository)
 
-    with st.container(border=True):
-        st.markdown("**Remove repository**")
-        st.caption("Delete the imported bytes, job history, and every vector collection version.")
-        if st.button(
-            "Delete repository",
-            key=f"delete_{repository.id}",
-            use_container_width=True,
-        ):
-            st.session_state[f"confirm_delete_{repository.id}"] = True
-        if st.session_state.get(f"confirm_delete_{repository.id}"):
-            st.warning("This permanently deletes the repository and cannot be undone.")
-            confirm, cancel = st.columns(2)
-            if confirm.button(
-                "Delete permanently",
-                key=f"confirm_delete_button_{repository.id}",
-                type="primary",
+        with st.container(border=True):
+            st.markdown("**Remove repository**")
+            if st.button(
+                "Delete repository",
+                key=f"delete_{repository.id}",
+                help="Remove the imported source, job history, and vector index.",
                 use_container_width=True,
             ):
-                _delete_repository(client, repository)
-            if cancel.button(
-                "Keep repository",
-                key=f"cancel_delete_{repository.id}",
-                use_container_width=True,
-            ):
-                st.session_state.pop(f"confirm_delete_{repository.id}", None)
-                st.rerun()
+                st.session_state[f"confirm_delete_{repository.id}"] = True
+            if st.session_state.get(f"confirm_delete_{repository.id}"):
+                st.warning("This permanently deletes the repository and cannot be undone.")
+                confirm, cancel = st.columns(2)
+                if confirm.button(
+                    "Delete permanently",
+                    key=f"confirm_delete_button_{repository.id}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    _delete_repository(client, repository)
+                if cancel.button(
+                    "Keep repository",
+                    key=f"cancel_delete_{repository.id}",
+                    use_container_width=True,
+                ):
+                    st.session_state.pop(f"confirm_delete_{repository.id}", None)
+                    st.rerun()
 
 
 def _render_ready_workbench(client: ApiClient, repository: RepositoryRecord) -> None:
     current_view = st.session_state.get("workspace_view")
     if current_view not in WORKSPACE_VIEWS:
-        st.session_state["workspace_view"] = "Investigate"
+        st.session_state["workspace_view"] = "Ask"
     view = st.radio(
         "Workspace view",
         WORKSPACE_VIEWS,
@@ -742,14 +822,12 @@ def _render_ready_workbench(client: ApiClient, repository: RepositoryRecord) -> 
         key="workspace_view",
     )
     st.divider()
-    if view == "Investigate":
-        _render_investigate(client, repository)
-    elif view == "Explore":
-        _render_explore(client, repository)
-    elif view == "Overview":
-        _render_overview(client, repository)
+    if view == "Ask":
+        _render_ask(client, repository)
+    elif view == "Source":
+        _render_source(client, repository)
     else:
-        _render_manage(client, repository)
+        _render_repository(client, repository)
 
 
 def _render_repository_state(client: ApiClient, repository: RepositoryRecord) -> None:
@@ -760,7 +838,7 @@ def _render_repository_state(client: ApiClient, repository: RepositoryRecord) ->
     if repository.status is RepositoryStatus.FAILED:
         st.error(_safe_repository_error(repository.error_message))
         st.caption("Review the source, then reindex when the issue is resolved.")
-        _render_manage(client, repository)
+        _render_maintenance(client, repository)
         return
     if repository.status is RepositoryStatus.DELETING:
         st.info("The repository and its vector index are being removed.")
@@ -795,7 +873,7 @@ def main() -> None:
         with st.spinner("Loading workspace…"):
             repositories = client.list_repositories()
     except Exception as error:
-        _render_product_bar(None, service_label="Unavailable")
+        _render_product_bar(None)
         st.error("Workspace unavailable")
         st.caption(_friendly_error(error))
         if st.button("Refresh", type="primary"):
@@ -803,7 +881,7 @@ def main() -> None:
         return
 
     selected = _render_sidebar(client, settings, repositories, health, status)
-    _render_product_bar(selected, service_label=_service_label(health, status))
+    _render_product_bar(selected)
     _render_notice()
     if selected is None:
         _render_empty_state(client, settings)

@@ -94,7 +94,7 @@ class FakeApiClient:
     def status(self) -> StatusResponse:
         return StatusResponse(
             application="Codebase Intelligence",
-            version="0.2.0",
+            version="0.3.0",
             environment="test",
             embedding=ProviderState(
                 provider="deterministic",

@@ -1,4 +1,4 @@
-"""Streamlit AppTest coverage for the Phase 2 repository workbench."""
+"""Streamlit AppTest coverage for the public repository workbench."""
 
 from __future__ import annotations
 
@@ -74,18 +74,65 @@ def test_returning_workspace_is_compact_and_import_is_collapsed(
     app = run_app(FakeApiClient([repository_record()]))
 
     assert not app.exception
+    assert [title.value for title in app.title] == ["Codebase Intelligence"]
     assert any(selectbox.label == "Repository" for selectbox in app.selectbox)
     navigation = next(radio for radio in app.radio if radio.label == "Workspace view")
-    assert navigation.options == ["Investigate", "Explore", "Overview", "Manage"]
-    assert navigation.value == "Investigate"
+    assert navigation.options == ["Ask", "Source", "Repository"]
+    assert navigation.value == "Ask"
     add_repository = next(
         expander for expander in app.expander if expander.label == "Add repository"
     )
     assert add_repository.proto.expanded is False
+    system = next(expander for expander in app.expander if expander.label == "System")
+    assert system.proto.expanded is False
     text = _all_visible_text(app)
     assert "payments-service" in text
     assert "Find evidence" in [button.label for button in app.button]
     assert not app.chat_input
+
+
+@pytest.mark.ui
+def test_switching_repositories_returns_to_ask(
+    run_app: Callable[[FakeApiClient], AppTest],
+) -> None:
+    fake = FakeApiClient(
+        [
+            repository_record(repository_id="repo-1", name="payments-service"),
+            repository_record(repository_id="repo-2", name="identity-service"),
+        ]
+    )
+    app = run_app(fake)
+    app = _view(app, "Source")
+    repository_selector = next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "Repository"
+    )
+    repository_selector.set_value("repo-2").run()
+
+    navigation = next(radio for radio in app.radio if radio.label == "Workspace view")
+    assert navigation.value == "Ask"
+    assert app.session_state["selected_repository_id"] == "repo-2"
+    assert "identity-service" in _all_visible_text(app)
+
+
+@pytest.mark.ui
+def test_added_repository_wins_over_the_existing_selector_value(
+    run_app: Callable[[FakeApiClient], AppTest],
+) -> None:
+    fake = FakeApiClient([repository_record()])
+    app = run_app(fake)
+    app = _view(app, "Repository")
+    find_text_input(app, "GitHub repository URL").set_value(
+        "https://github.com/acme/new-repository"
+    )
+    find_button(app, "Add GitHub repository").click().run()
+
+    repository_selector = next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "Repository"
+    )
+    assert repository_selector.value == "repo-created"
+    assert app.session_state["selected_repository_id"] == "repo-created"
+    assert app.session_state["workspace_view"] == "Ask"
+    assert "new-repository" in _all_visible_text(app)
 
 
 @pytest.mark.ui
@@ -100,7 +147,7 @@ def test_active_repository_uses_durable_job_progress_without_ready_workbench_pol
     text = _all_visible_text(app)
     assert not app.exception
     assert "Embedding" in text
-    assert "64%" in text
+    assert app.get("progress")[0].value == 64
     assert fake.list_jobs_calls[-1]["repository_id"] == "repo-created"
     assert not app.text_area
 
@@ -124,7 +171,34 @@ def test_successful_investigation_renders_neutral_finding_and_match_reasons(
     assert "Path match" in text
     assert "Symbol match" in text
     assert "Combined" not in text
+    assert "View evidence 1.1 in Source" in [button.label for button in app.button]
     assert not app.chat_message
+
+
+@pytest.mark.ui
+def test_blank_question_warns_without_calling_the_api(
+    run_app: Callable[[FakeApiClient], AppTest],
+) -> None:
+    fake = FakeApiClient([repository_record()])
+    app = run_app(fake)
+    find_button(app, "Find evidence").click().run()
+
+    assert fake.question_calls == []
+    assert "Enter a question" in _all_visible_text(app)
+
+
+@pytest.mark.ui
+def test_example_question_only_prefills_the_question(
+    run_app: Callable[[FakeApiClient], AppTest],
+) -> None:
+    fake = FakeApiClient([repository_record()])
+    app = run_app(fake)
+    find_button(app, "Where is authentication enforced?").click().run()
+
+    assert fake.question_calls == []
+    assert _question_input(app).value == "Where is authentication enforced?"
+    examples = next(expander for expander in app.expander if expander.label == "Example questions")
+    assert examples.proto.expanded is False
 
 
 @pytest.mark.ui
@@ -156,9 +230,9 @@ def test_investigation_can_be_exported_and_cleared(
 
     assert app.get("download_button")
     assert app.get("download_button")[0].label == "Download Markdown"
-    find_button(app, "Clear investigation").click().run()
+    find_button(app, "Clear findings").click().run()
 
-    assert "No findings yet" in _all_visible_text(app)
+    assert "Findings will appear here" in _all_visible_text(app)
 
 
 @pytest.mark.ui
@@ -169,9 +243,9 @@ def test_reindex_marks_existing_findings_stale(
     app = run_app(fake)
     _question_input(app).set_value("Where is authentication?")
     find_button(app, "Find evidence").click().run()
-    _view(app, "Manage")
+    _view(app, "Repository")
     find_button(app, "Reindex repository").click().run()
-    _view(app, "Investigate")
+    _view(app, "Ask")
 
     assert fake.reindex_calls == ["repo-1"]
     assert "earlier repository index" in _all_visible_text(app)
@@ -183,7 +257,7 @@ def test_explore_filters_and_renders_indexed_redacted_source(
 ) -> None:
     fake = FakeApiClient([repository_record()])
     app = run_app(fake)
-    _view(app, "Explore")
+    _view(app, "Source")
     find_text_input(app, "Search indexed files").set_value("auth").run()
 
     text = _all_visible_text(app)
@@ -193,41 +267,46 @@ def test_explore_filters_and_renders_indexed_redacted_source(
         "repository_id": "repo-1",
         "path": "src/auth/service.py",
     }
-    assert "Indexed and redacted preview" in text
+    assert "Indexed, redacted preview" in text
     assert "authenticate_request" in text
     assert "[REDACTED:ASSIGNMENT]" in text
 
 
 @pytest.mark.ui
-def test_citation_opens_the_exact_path_in_explorer(
+def test_citation_opens_the_exact_path_in_source(
     run_app: Callable[[FakeApiClient], AppTest],
 ) -> None:
     fake = FakeApiClient([repository_record()])
     app = run_app(fake)
     _question_input(app).set_value("Where is authentication?")
     find_button(app, "Find evidence").click().run()
-    find_button(app, "Open in explorer").click().run()
+    find_button(app, "View evidence 1.1 in Source").click().run()
 
     navigation = next(radio for radio in app.radio if radio.label == "Workspace view")
-    assert navigation.value == "Explore"
+    assert navigation.value == "Source"
     assert fake.source_detail_calls[-1]["path"] == "src/auth/service.py"
     assert app.session_state["source_line_repo-1"] == 18
 
 
 @pytest.mark.ui
-def test_overview_and_manage_keep_secondary_actions_out_of_investigate(
+def test_repository_view_keeps_maintenance_collapsed_and_out_of_ask(
     run_app: Callable[[FakeApiClient], AppTest],
 ) -> None:
     fake = FakeApiClient([repository_record()])
     app = run_app(fake)
     assert "Delete repository" not in [button.label for button in app.button]
 
-    _view(app, "Overview")
-    overview = _all_visible_text(app)
-    assert "Index overview" in overview
-    assert "Recent indexing activity" in overview
-
-    _view(app, "Manage")
+    _view(app, "Repository")
+    repository_view = _all_visible_text(app)
+    assert "Repository source" in repository_view
+    assert [metric.label for metric in app.metric] == [
+        "Files",
+        "Sections",
+        "Indexed size",
+        "Redactions",
+    ]
+    maintenance = next(expander for expander in app.expander if expander.label == "Maintenance")
+    assert maintenance.proto.expanded is False
     labels = [button.label for button in app.button]
     assert "Reindex repository" in labels
     assert "Delete repository" in labels
@@ -239,7 +318,7 @@ def test_delete_requires_confirmation_and_removes_repository(
 ) -> None:
     fake = FakeApiClient([repository_record()])
     app = run_app(fake)
-    _view(app, "Manage")
+    _view(app, "Repository")
     find_button(app, "Delete repository").click().run()
 
     assert "cannot be undone" in _all_visible_text(app)
@@ -276,9 +355,15 @@ def test_app_and_design_avoid_ai_styling_and_unsafe_html() -> None:
     assert source is not None
     assert "unsafe_allow_html" not in source
     assert "st.chat_message" not in source
+    assert 'WORKSPACE_VIEWS = ("Ask", "Source", "Repository")' in source
+    assert source.index("for index, entry in enumerate(reversed(entries), start=1)") < source.index(
+        'with st.expander("Save or clear findings"'
+    )
     assert "gradient" not in APP_STYLES.casefold()
     assert "robot" not in APP_STYLES.casefold()
     assert "focus-visible" in APP_STYLES
+    assert "focus-within" in APP_STYLES
+    assert "border: 1px solid var(--ci-line) !important" in APP_STYLES
     assert "overflow-x: auto" in APP_STYLES
 
     config_path = Path(__file__).parents[2] / ".streamlit" / "config.toml"
